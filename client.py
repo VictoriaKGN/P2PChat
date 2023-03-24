@@ -7,6 +7,8 @@ import json
 import queue
 import os
 import time
+import select
+import sys
 
 TCP_PORT = 8002
 UDP_PORT = 8001
@@ -18,22 +20,23 @@ class Client:
         "Friend 2": ["Hey", "What's up?", "Not much, just chilling."],
         "Friend 3": ["Yo", "Sup?", "Nm, hbu?"]}
     online = {} # client addr: username
+    my_friends = []
 
     def __init__(self):
-        udp_socket = self.open_udp()
-        tcp_socket = self.open_tcp()
+        # udp_socket = self.open_udp()
+        # tcp_socket = self.open_tcp()
         broadcast_queue = queue.Queue()
 
-        tcplistener_thread = threading.Thread(target=self.recv_tcp)
-        tcplistener_thread.starT()
+        # tcplistener_thread = threading.Thread(target=self.recv_tcp)
+        # tcplistener_thread.starT()
 
-        udplistener_thread = threading.Thread(target=self.recv_udp, args=(udp_socket, broadcast_queue))
-        udplistener_thread.start()
+        # udplistener_thread = threading.Thread(target=self.recv_udp, args=(udp_socket, broadcast_queue))
+        # udplistener_thread.start()
 
-        broadcast_queue.put((BROADCAST_IP, MessageID.ONLINE, None))
+        # broadcast_queue.put((BROADCAST_IP, MessageID.ONLINE, None))
 
-        udpsender_thread = threading.Thread(target=self.send_udp, args=(udp_socket, broadcast_queue))
-        udpsender_thread.start()
+        # udpsender_thread = threading.Thread(target=self.send_udp, args=(udp_socket, broadcast_queue))
+        # udpsender_thread.start()
 
         gui_thread = threading.Thread(target=self.gui_loop, args=(broadcast_queue, ))
         gui_thread.start()
@@ -52,8 +55,26 @@ class Client:
         return sock
     
     def recv_tcp(self, tcp_socket):
+        inputs = [tcp_socket, ]
+        outputs = []
+        
         while True:
-            conn, addr = tcp_socket.accept()
+            try:
+                readable, writable, exceptional = select.select(
+                    inputs + self.my_friends,
+                    outputs,
+                    inputs + self.my_friends)
+                
+                for sock in readable:
+                    if sock is tcp_socket:              # new chat, someone binded successfully
+                        pass
+                    elif sock in self.my_friends:
+                        pass         
+            except Exception as e:
+                print("SOMETHING IS BAD")
+                print(e)
+                sys.exit(0)      
+            
 
     def recv_udp(self, udp_socket, broadcast_queue):
         while True:
@@ -67,7 +88,7 @@ class Client:
                 if message.messageID is MessageID.ONLINE:
                     self.online[addr] = message.sender
                     if not message.message:
-                        broadcast_queue.put((addr[0], MessageID.ONLINE, "ACK")) # instead of broadcasting everyone, need to send it back to only the person
+                        broadcast_queue.put((addr[0], MessageID.ONLINE, "ACK"))
                 elif message.messageID is MessageID.OFFLINE:
                     del self.online[addr]
                 elif message.messageID is MessageID.START:
@@ -130,8 +151,18 @@ class Client:
         self.friendname_label = tkinter.Label(name_frame, text="", bg="#323338", fg="#FFFFFF", font=12)
         self.friendname_label.pack(side="right", padx=2, pady=2)
 
-        self.chathistory_text = tkinter.Text(right_frame, width=int(3*width/4), height=height-50)
-        self.chathistory_text.pack(side="bottom", padx=10, pady=10)
+        self.chathistory_text = tkinter.Text(right_frame, width=int(3*width/4), height=40)
+        self.chathistory_text.pack(side="top", padx=10, pady=10, expand=True)
+        # self.chathistory_text = tkinter.Text()
+        
+        input_frame = tkinter.Frame(right_frame, bg="#323338", width=int(3*width/4), height=51)
+        input_frame.pack(side="bottom", padx=10, pady=10)
+        
+        input_text = tkinter.Text(input_frame, width=100, height=0)
+        input_text.pack(side="left")
+        
+        sendinput_button = tkinter.Button(input_frame, text="Send", bg="#414249", fg="#FFFFFF", activebackground="#414249", activeforeground="#FFFFFF")
+        sendinput_button.pack(side="right")
 
         friends_listbox.select_set(0)
         self.switch_chat_history(list(self.chat_histories.keys())[0])
