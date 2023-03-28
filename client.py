@@ -9,23 +9,29 @@ import os
 import time
 import select
 import sys
+import uuid
 
 TCP_PORT = 8002
 UDP_PORT = 8001
 BROADCAST_IP = "255.255.255.255"
 
 class Client:
-    chat_histories = {
-        "Friend 1": ["Hi", "How are you?", "I'm fine, thanks."],
-        "Friend 2": ["Hey", "What's up?", "Not much, just chilling."],
-        "Friend 3": ["Yo", "Sup?", "Nm, hbu?"]}
-    online = {} # client addr: username
-    my_friends = []
+    my_guid = None
+    # chat_histories = {
+    #     "Friend 1": ["Hi", "How are you?", "I'm fine, thanks."],
+    #     "Friend 2": ["Hey", "What's up?", "Not much, just chilling."],
+    #     "Friend 3": ["Yo", "Sup?", "Nm, hbu?"]}
+    online = {} # peer guid: username
+    my_friends = {} # peer socket: guid
+    curr_chats = [] # list of guids as they appear in left panel
+    db_lock = threading.Lock()
 
     def __init__(self):
+        self.init_guid()
         # udp_socket = self.open_udp()
         # tcp_socket = self.open_tcp()
         broadcast_queue = queue.Queue()
+        direct_queue = queue.Queue()
 
         # tcplistener_thread = threading.Thread(target=self.recv_tcp)
         # tcplistener_thread.starT()
@@ -38,8 +44,28 @@ class Client:
         # udpsender_thread = threading.Thread(target=self.send_udp, args=(udp_socket, broadcast_queue))
         # udpsender_thread.start()
 
-        gui_thread = threading.Thread(target=self.gui_loop, args=(broadcast_queue, ))
+        gui_thread = threading.Thread(target=self.gui_loop, args=(broadcast_queue, direct_queue))
         gui_thread.start()
+
+    def init_guid(self):
+        conn = sqlite3.connect('chat_info.db')
+
+        try:
+            result = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='AppGuid'").fetchone()
+
+            if not result:
+                conn.execute("CREATE TABLE AppGuid (Guid TEXT)")
+                conn.commit() 
+                self.my_guid = uuid.uuid4()
+                conn.execute("INSERT INTO AppGuid (Guid) VALUES (?)", (str(self.my_guid), ))
+                conn.commit()                
+            else:
+                guid = conn.execute("SELECT Guid FROM AppGuid").fetchone()[0]
+                self.my_guid = uuid.UUID(guid)
+        except Exception as e:
+            print(e)
+        finally:
+            conn.close()
 
     def open_udp(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -54,62 +80,119 @@ class Client:
         sock.listen()
         return sock
     
+    def write_to_db(self, table_name, senderID, message):
+        try:
+            self.db_lock.acquire()
+            conn = sqlite3.connect('chat_info.db')
+            conn.execute(f"INSERT INTO {table_name} VALUES (?, ?)", (senderID, message))
+            conn.commit()
+        except sqlite3.Error as e:
+            print(e)
+        finally:
+            self.db_lock.release()
+    
     def recv_tcp(self, tcp_socket):
         inputs = [tcp_socket, ]
+        waiting = []
         outputs = []
         
         while True:
             try:
                 readable, writable, exceptional = select.select(
-                    inputs + self.my_friends,
+                    inputs + waiting + list(self.my_friends.keys()),
                     outputs,
-                    inputs + self.my_friends)
+                    inputs + waiting + list(self.my_friends.keys()))
                 
                 for sock in readable:
-                    if sock is tcp_socket:              # new chat, someone binded successfully
-                        pass
+                    if sock is tcp_socket:     # new chat, someone binded successfully
+                        conn, addr = tcp_socket.accept()
+                        waiting.append(conn)
                     elif sock in self.my_friends:
-                        pass         
+                        data = sock.recv(2048)
+                        if data:
+                            message_dict = json.loads(data.decode())
+                            message = TCPMessage(**message_dict)
+                            self.write_to_db(str(message.senderID), str(message.senderID), message.message)
+                            # change GUI
+                    elif sock in waiting:
+                        data = sock.recv(2048)
+                        if data:
+                            message_dict = json.loads(data.decode())
+                            message = TCPMessage(**message_dict)
+                            if message.messageID is MessageID.INIT:
+                                waiting.remove(sock)
+                                self.my_friends[sock] = message.senderID
+                                self.init_db(message.senderID)
+
             except Exception as e:
                 print("SOMETHING IS BAD")
                 print(e)
-                sys.exit(0)      
-            
+                sys.exit(0)  
 
-    def recv_udp(self, udp_socket, broadcast_queue):
+    def send_tcp(self, direct_queue):    
         while True:
-            #try:
-            data, addr = udp_socket.recvfrom(2048)
-            
-            if addr[0] != socket.gethostbyname(socket.gethostname()):
-                print(f"Received broadcast from {addr}: {data.decode()}")
-                message_dict = json.loads(data.decode())
-                message = Message(**message_dict)
-                if message.messageID is MessageID.ONLINE:
-                    self.online[addr] = message.sender
-                    if not message.message:
-                        broadcast_queue.put((addr[0], MessageID.ONLINE, "ACK"))
-                elif message.messageID is MessageID.OFFLINE:
-                    del self.online[addr]
-                elif message.messageID is MessageID.START:
-                    pass # someone wants to start TCP
-                print(self.online)
-            # except Exception as e:
-            #     print(e)
+            if direct_queue.qsize() > 0:
+                socket, messageID, message = direct_queue.get(block=False)
+                message = TCPMessage(messageID, self.my_guid, message)
+                message_dict = vars(message)
+                message_json = json.dumps(message_dict)
+
+                try:
+                    socket.sendall(message_json.encode())
+                except Exception:
+                    pass
+            time.sleep(500)
+
+
+    def recv_udp(self, udp_socket, broadcast_queue, direct_queue):
+        while True:
+            try:
+                data, addr = udp_socket.recvfrom(2048)
+                
+                if addr[0] != socket.gethostbyname(socket.gethostname()):
+                    print(f"Received broadcast from {addr}: {data.decode()}")
+                    message_dict = json.loads(data.decode())
+                    message = UDPMessage(**message_dict)
+                    if message.messageID is MessageID.ONLINE:
+                        self.online[message.senderID] = message.senderUsername
+                        if not message.message:
+                            broadcast_queue.put((addr[0], MessageID.ONLINE, "ACK"))
+                    elif message.messageID is MessageID.OFFLINE:
+                        del self.online[message.senderID]
+                    elif message.messageID is MessageID.START: # someone wants to start TCP, connect to them using TCP socket
+                        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        sock.connect((addr[0], message.message))
+                        self.my_friends[sock] = message.senderID
+                        self.init_db(message.senderID)
+                        direct_queue.put((sock, MessageID.INIT, None))
+                    print(self.online)
+            except Exception as e:
+                print(e)
 
             # filter messages
+
+    def init_db(self, table_name):
+        conn = sqlite3.connect('chat_info.db')
+
+        try:
+            conn.execute("CREATE TABLE IF NOT EXISTS {table_name} (senderID INTEGER, message TEXT)")
+            conn.commit()
+        except sqlite3.Error as e:
+            print(e)
+        finally:
+            conn.close()
     
     def send_udp(self, udp_socket, broadcast_queue):
         while True:
             if broadcast_queue.qsize() > 0:
                 addrIP, messageID, message = broadcast_queue.get(block=False)
-                message = Message(messageID, "vickyko", message)
+                message = UDPMessage(messageID, self.my_guid, "vickyko", message)
                 message_dict = vars(message)
                 message_json = json.dumps(message_dict)
                 udp_socket.sendto(message_json.encode(), (addrIP, UDP_PORT))
             time.sleep(500)
         
-    def gui_loop(self, broadcast_queue):
+    def gui_loop(self, broadcast_queue, direct_queue):
         width = 1200
         height = 750
         self.win = tkinter.Tk()
@@ -121,27 +204,28 @@ class Client:
         left_frame = tkinter.Frame(self.win, width=int(width/4), height=height, bg="#2C2D31")
         left_frame.pack(side="left")
 
-        options_frame = tkinter.Frame(left_frame, width=20, height=20, bg="#2C2D31")
-        options_frame.pack(side="top")
+        # options_frame = tkinter.Frame(left_frame, width=20, height=20, bg="#2C2D31")
+        # options_frame.pack(side="top")
 
-        username_text = tkinter.Text(options_frame, width=20, height=1)
-        username_text.pack(side="left", padx=10, pady=10)
-        username_text.insert(tkinter.END, "User")
+        # username_text = tkinter.Text(options_frame, width=20, height=1)
+        # username_text.pack(side="left", padx=10, pady=10)
+        # username_text.insert(tkinter.END, "User")
 
-        newchat_button = tkinter.Button(options_frame, text="New Chat", bg="#414249", fg="#FFFFFF", activebackground="#414249", activeforeground="#FFFFFF")
-        newchat_button.pack(side="right", padx=10, pady=10)
+        newchat_button = tkinter.Button(left_frame, text="New Chat", bg="#414249", fg="#FFFFFF", activebackground="#414249", activeforeground="#FFFFFF")
+        newchat_button.pack(side="top", padx=10, pady=10)
 
-        friends_listbox = tkinter.Listbox(left_frame, bg="#2C2D31", fg="#FFFFFF", width=30, height=50, borderwidth=0, highlightthickness=0, font=12, selectbackground="#414249", activestyle="none")
-        friends_listbox.pack(side="bottom", padx=10, pady=10)
-        friends_listbox.bind('<<ListboxSelect>>', lambda event=None: self.switch_chat_history(friends_listbox.get(friends_listbox.curselection())))
+        self.friends_listbox = tkinter.Listbox(left_frame, bg="#2C2D31", fg="#FFFFFF", width=30, height=50, borderwidth=0, highlightthickness=0, font=12, selectbackground="#414249", activestyle="none", exportselection=False)
+        self.friends_listbox.pack(side="bottom", padx=10, pady=10)
+        self.friends_listbox.bind('<<ListboxSelect>>', lambda event=None: self.switch_chat_history(self.friends_listbox.get(self.friends_listbox.curselection())))
 
         for friend_name in self.chat_histories.keys():
-            friends_listbox.insert(tkinter.END, friend_name)
+            self.friends_listbox.insert(tkinter.END, friend_name)
+            self.friends_listbox.itemconfig(tkinter.END, {'value': "0"})
 
-        right_frame = tkinter.Frame(self.win, width=int(3*width/4), height=height, bg="#323338")
+        right_frame = tkinter.Frame(self.win, width=int(3*width/4), height=750, bg="#323338")
         right_frame.pack(side="right")
 
-        name_frame = tkinter.Frame(right_frame, width=20, height=50, bg="#323338")
+        name_frame = tkinter.Frame(right_frame, width=20, height=40, bg="#323338")
         name_frame.pack(side="top", pady=5)
 
         circle_canvas = tkinter.Canvas(name_frame, width=15, height=15, bg="#323338", borderwidth=0, highlightthickness=0)
@@ -151,31 +235,36 @@ class Client:
         self.friendname_label = tkinter.Label(name_frame, text="", bg="#323338", fg="#FFFFFF", font=12)
         self.friendname_label.pack(side="right", padx=2, pady=2)
 
-        self.chathistory_text = tkinter.Text(right_frame, width=int(3*width/4), height=40)
-        self.chathistory_text.pack(side="top", padx=10, pady=10, expand=True)
-        # self.chathistory_text = tkinter.Text()
+        self.chathistory_text = tkinter.Text(right_frame, width=int(3*width/4), height=41, bg="#323338", fg="#FFFFFF", borderwidth=0, highlightthickness=0)
+        self.chathistory_text.pack(side="top", padx=10, pady=4)
         
-        input_frame = tkinter.Frame(right_frame, bg="#323338", width=int(3*width/4), height=51)
+        input_frame = tkinter.Frame(right_frame, bg="#323338", width=int(3*width/4), height=50)
         input_frame.pack(side="bottom", padx=10, pady=10)
         
-        input_text = tkinter.Text(input_frame, width=100, height=0)
-        input_text.pack(side="left")
+        self.input_text = tkinter.Text(input_frame, width=100, height=1, bg="#414249", fg="#FFFFFF", borderwidth=0, highlightthickness=0)
+        self.input_text.pack(side="left")
         
-        sendinput_button = tkinter.Button(input_frame, text="Send", bg="#414249", fg="#FFFFFF", activebackground="#414249", activeforeground="#FFFFFF")
+        sendinput_button = tkinter.Button(input_frame, text="Send", bg="#414249", fg="#FFFFFF", activebackground="#414249", activeforeground="#FFFFFF", command= lambda: self.send_message(direct_queue))
         sendinput_button.pack(side="right")
 
-        friends_listbox.select_set(0)
+        self.friends_listbox.select_set(0)
         self.switch_chat_history(list(self.chat_histories.keys())[0])
 
         self.win.protocol("WM_DELETE_WINDOW", lambda arg=broadcast_queue: self.close_window(arg))
         self.win.mainloop()
 
-    # deal with selection outside of listbox
+    def send_message(self, direct_queue):
+        index = self.friends_listbox.curselection()[0]
+        guid = self.friends_listbox.itemcget(index, "value")
+        print(guid)
+
     def switch_chat_history(self, friend_name):
+        self.chathistory_text.config(state="normal")
         self.friendname_label.config(text=friend_name)
         chat_history = self.chat_histories.get(friend_name, [])
         self.chathistory_text.delete("1.0", tkinter.END)
         self.chathistory_text.insert(tkinter.END, "\n".join(chat_history))
+        self.chathistory_text.config(state="disabled")
 
     def close_window(self, broadcast_queue):
         broadcast_queue.put((BROADCAST_IP, MessageID.OFFLINE, None))
