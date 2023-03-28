@@ -23,7 +23,7 @@ class Client:
     #     "Friend 3": ["Yo", "Sup?", "Nm, hbu?"]}
     online = {} # peer guid: username
     my_friends = {} # peer socket: guid
-    curr_chats = [] # list of guids as they appear in left panel
+    recent_chats = [] # list of guids as they appear in left panel
     db_lock = threading.Lock()
 
     def __init__(self):
@@ -46,6 +46,18 @@ class Client:
 
         gui_thread = threading.Thread(target=self.gui_loop, args=(broadcast_queue, direct_queue))
         gui_thread.start()
+        
+    def init_recents(self):
+        conn = sqlite3.connect('chat_info.db')
+        
+        try:
+            conn.execute("CREATE TABLE IF NOT EXISTS Recents (senderID TEXT)")
+            conn.commit()
+            # TODO grab all rows and save into self.recent_chats
+            
+            
+        except Exception as e:
+            print(e)
 
     def init_guid(self):
         conn = sqlite3.connect('chat_info.db')
@@ -161,7 +173,7 @@ class Client:
                         del self.online[message.senderID]
                     elif message.messageID is MessageID.START: # someone wants to start TCP, connect to them using TCP socket
                         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        sock.connect((addr[0], message.message))
+                        sock.connect((addr[0], message.message)) # TODO conver to int
                         self.my_friends[sock] = message.senderID
                         self.init_db(message.senderID)
                         direct_queue.put((sock, MessageID.INIT, None))
@@ -169,13 +181,11 @@ class Client:
             except Exception as e:
                 print(e)
 
-            # filter messages
-
     def init_db(self, table_name):
         conn = sqlite3.connect('chat_info.db')
 
         try:
-            conn.execute("CREATE TABLE IF NOT EXISTS {table_name} (senderID INTEGER, message TEXT)")
+            conn.execute("CREATE TABLE IF NOT EXISTS {table_name} (senderID TEXT, message TEXT)")
             conn.commit()
         except sqlite3.Error as e:
             print(e)
@@ -216,11 +226,11 @@ class Client:
 
         self.friends_listbox = tkinter.Listbox(left_frame, bg="#2C2D31", fg="#FFFFFF", width=30, height=50, borderwidth=0, highlightthickness=0, font=12, selectbackground="#414249", activestyle="none", exportselection=False)
         self.friends_listbox.pack(side="bottom", padx=10, pady=10)
-        self.friends_listbox.bind('<<ListboxSelect>>', lambda event=None: self.switch_chat_history(self.friends_listbox.get(self.friends_listbox.curselection())))
+        self.friends_listbox.bind('<<ListboxSelect>>', lambda event=None: self.switch_chat_history(self.recent_chats[self.friends_listbox.curselection()]))
 
-        for friend_name in self.chat_histories.keys():
-            self.friends_listbox.insert(tkinter.END, friend_name)
-            self.friends_listbox.itemconfig(tkinter.END, {'value': "0"})
+        # for friend_name in self.chat_histories.keys():
+        #     self.friends_listbox.insert(tkinter.END, friend_name)
+        self.update_recent_list()
 
         right_frame = tkinter.Frame(self.win, width=int(3*width/4), height=750, bg="#323338")
         right_frame.pack(side="right")
@@ -248,7 +258,7 @@ class Client:
         sendinput_button.pack(side="right")
 
         self.friends_listbox.select_set(0)
-        self.switch_chat_history(list(self.chat_histories.keys())[0])
+        self.switch_chat_history(self.recent_chats[0])
 
         self.win.protocol("WM_DELETE_WINDOW", lambda arg=broadcast_queue: self.close_window(arg))
         self.win.mainloop()
@@ -257,14 +267,39 @@ class Client:
         index = self.friends_listbox.curselection()[0]
         guid = self.friends_listbox.itemcget(index, "value")
         print(guid)
+        
+    # TODO base case of empty list
+    def update_recent_list(self):
+        index = self.friends_listbox.curselection()
+        selected_guid = self.recent_chats[index]
+        self.friends_listbox.delete("1.0", tkinter.END)
+        
+        for username in self.recent_chats:
+            self.friends_listbox.insert(tkinter.END, username)
+        index = self.recent_chats.index(selected_guid)
+        
+        self.friends_listbox.select_set(index)
+        self.switch_chat_history(self.recent_chats[index])
 
-    def switch_chat_history(self, friend_name):
+    # def switch_chat_history(self, friend_name):
+    #     self.chathistory_text.config(state="normal")
+    #     self.friendname_label.config(text=friend_name)
+    #     chat_history = self.chat_histories.get(friend_name, [])
+    #     self.chathistory_text.delete("1.0", tkinter.END)
+    #     self.chathistory_text.insert(tkinter.END, "\n".join(chat_history))
+    #     self.chathistory_text.config(state="disabled")
+    
+    def switch_chat_history(self, guid):
         self.chathistory_text.config(state="normal")
-        self.friendname_label.config(text=friend_name)
-        chat_history = self.chat_histories.get(friend_name, [])
+        self.friendname_label.config(text=self.online[guid])
+        chat_history = self.fetch_history()
         self.chathistory_text.delete("1.0", tkinter.END)
         self.chathistory_text.insert(tkinter.END, "\n".join(chat_history))
         self.chathistory_text.config(state="disabled")
+        
+    def fetch_history(self):
+        # TODO fetch all rows of the table
+        pass
 
     def close_window(self, broadcast_queue):
         broadcast_queue.put((BROADCAST_IP, MessageID.OFFLINE, None))
