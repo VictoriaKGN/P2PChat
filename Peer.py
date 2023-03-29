@@ -1,6 +1,7 @@
 from message import *
 from DBManager import DBManager
 from GUIManager import GUIManager
+from SocketManager import SocketManager
 import socket
 import threading
 import tkinter
@@ -28,28 +29,38 @@ class Client:
     db_lock = threading.Lock()
 
     def __init__(self):
-        # udp_socket = self.open_udp()
-        # tcp_socket = self.open_tcp()
-        broadcast_queue = queue.Queue()
-        direct_queue = queue.Queue()
+        self.direct_out_queue = queue.Queue()
+        self.direct_in_queue = queue.Queue()
 
         self.db_manager = DBManager()
         self.init_guid()
         self.init_peers_info()
-
-        # tcplistener_thread = threading.Thread(target=self.recv_tcp)
-        # tcplistener_thread.starT()
-
-        # udplistener_thread = threading.Thread(target=self.recv_udp, args=(udp_socket, broadcast_queue))
-        # udplistener_thread.start()
-
-        # broadcast_queue.put((BROADCAST_IP, MessageID.ONLINE, None))
-
-        # udpsender_thread = threading.Thread(target=self.send_udp, args=(udp_socket, broadcast_queue))
-        # udpsender_thread.start()
-        gui_thread = GUIManager()
-        #gui_thread = threading.Thread(target=self.gui_loop, args=(broadcast_queue, direct_queue))
+        
+        self.socket_manager = SocketManager(self)
+        
+        gui_thread = GUIManager(self)
         gui_thread.start()
+        
+    def receive_message(self, sender_id, message):
+        self.direct_in_queue.put((sender_id, message))
+        
+    def get_received_message(self):
+        if self.direct_in_queue.qsize() > 0:
+            # TODO update chat history
+            return self.direct_in_queue.get(block=False)
+        else:
+            return None
+        
+    def send_message(self, send_to_index, message):
+        # TODO self.direct_out_queue.put((self.peers_infosend_to_id, message))
+        pass
+        
+    def get_send_message(self):
+        if self.direct_out_queue.qsize() > 0:
+            # TODO update chat history
+            return self.direct_out_queue.get(block=False)
+        else:
+            return None
         
     def init_peers_info(self):
         peers_info = self.db_manager.fetch_peers_info()
@@ -90,7 +101,7 @@ class Client:
     def write_to_db(self, table_name, sender_id, message):
         result = self.db_manager.write_peer_message(table_name, sender_id, message)
         if result is not True:
-            pass # do something
+            pass # TODO do something
     
     def recv_tcp(self, tcp_socket):
         inputs = [tcp_socket, ]

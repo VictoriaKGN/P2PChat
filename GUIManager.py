@@ -1,11 +1,13 @@
 import threading
 import tkinter
+import queue
 
 WIDTH = 1200
 HEIGHT = 750
 
 class GUIManager(threading.Thread):
-    def __init__(self):
+    def __init__(self, mediator):
+        self.mediator = mediator
         threading.Thread.__init__(self)
 
     def run(self):
@@ -47,13 +49,20 @@ class GUIManager(threading.Thread):
         input_frame = tkinter.Frame(placeholder_frame, bg="#323338", width=540, height=50)
         input_frame.pack(side="bottom", padx=10, pady=6)
         
-        self.input_text = tkinter.Text(input_frame, width=100, height=1, bg="#414249", fg="#FFFFFF", borderwidth=0, highlightthickness=0)
-        self.input_text.pack(side="left")
+        input_text = tkinter.Text(input_frame, width=100, height=1, bg="#414249", fg="#FFFFFF", borderwidth=0, highlightthickness=0)
+        input_text.pack(side="left")
         
-        #sendinput_button = tkinter.Button(input_frame, text="Send", bg="#414249", fg="#FFFFFF", activebackground="#414249", activeforeground="#FFFFFF", command= lambda: self.send_message(direct_queue))
-        #sendinput_button.pack(side="right")
+        sendinput_button = tkinter.Button(input_frame, text="Send", bg="#414249", fg="#FFFFFF", activebackground="#414249", activeforeground="#FFFFFF", command= lambda: self.send_message(input_text.get("1.0", tkinter.END), self.friends_listbox.curselection()))
+        sendinput_button.pack(side="right")
 
         self.win.mainloop()
+        
+        while True:
+            result = self.mediator.get_receive_message()
+            if result is not None:
+                sender_id = result[0]
+                message = result[1]
+                # TODO update GUI 
 
     def close_window(self):
         self.win.destroy()
@@ -64,3 +73,8 @@ class GUIManager(threading.Thread):
 
     def update_right_frame(self, is_online, username, chat_list):
         pass
+    
+    def send_message(self, message, send_to_index):
+        # TODO update gui
+        # TODO send to mediator
+        self.mediator.send_message(send_to_index, message)
