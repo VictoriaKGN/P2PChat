@@ -1,8 +1,9 @@
+from message import *
+from DBManager import DBManager
+from GUIManager import GUIManager
 import socket
 import threading
 import tkinter
-import sqlite3
-from message import *
 import json
 import queue
 import os
@@ -21,17 +22,20 @@ class Client:
     #     "Friend 1": ["Hi", "How are you?", "I'm fine, thanks."],
     #     "Friend 2": ["Hey", "What's up?", "Not much, just chilling."],
     #     "Friend 3": ["Yo", "Sup?", "Nm, hbu?"]}
-    online = {} # peer guid: username
-    my_friends = {} # peer socket: guid
-    recent_chats = [] # list of guids as they appear in left panel
+    online_peers = [] # list of guids
+    peer_sockets = {} # dict socket: guid
+    peers_info = {} # dict Guid: Username, Address, LastChat
     db_lock = threading.Lock()
 
     def __init__(self):
-        self.init_guid()
         # udp_socket = self.open_udp()
         # tcp_socket = self.open_tcp()
         broadcast_queue = queue.Queue()
         direct_queue = queue.Queue()
+
+        self.db_manager = DBManager()
+        self.init_guid()
+        self.init_peers_info()
 
         # tcplistener_thread = threading.Thread(target=self.recv_tcp)
         # tcplistener_thread.starT()
@@ -43,41 +47,32 @@ class Client:
 
         # udpsender_thread = threading.Thread(target=self.send_udp, args=(udp_socket, broadcast_queue))
         # udpsender_thread.start()
-
-        gui_thread = threading.Thread(target=self.gui_loop, args=(broadcast_queue, direct_queue))
+        gui_thread = GUIManager()
+        #gui_thread = threading.Thread(target=self.gui_loop, args=(broadcast_queue, direct_queue))
         gui_thread.start()
         
-    def init_recents(self):
-        conn = sqlite3.connect('chat_info.db')
-        
-        try:
-            conn.execute("CREATE TABLE IF NOT EXISTS Recents (senderID TEXT)")
-            conn.commit()
-            # TODO grab all rows and save into self.recent_chats
-            
-            
-        except Exception as e:
-            print(e)
+    def init_peers_info(self):
+        peers_info = self.db_manager.fetch_peers_info()
+        if peers_info is not False:
+            self.peers_info = peers_info
+        else:
+            pass # TODO deal with it 
 
     def init_guid(self):
-        conn = sqlite3.connect('chat_info.db')
+        guid = self.db_manager.fetch_guid()
 
-        try:
-            result = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='AppGuid'").fetchone()
-
-            if not result:
-                conn.execute("CREATE TABLE AppGuid (Guid TEXT)")
-                conn.commit() 
-                self.my_guid = uuid.uuid4()
-                conn.execute("INSERT INTO AppGuid (Guid) VALUES (?)", (str(self.my_guid), ))
-                conn.commit()                
+        if guid is False:
+            pass # TODO there was an error, deal with it
+        elif guid is not None:
+            self.my_guid = uuid.UUID(guid)
+        else:
+            new_guid = uuid.uuid4()
+            result = self.db_manager.init_guid(str(new_guid))
+            if result is True:
+                self.my_guid = new_guid
             else:
-                guid = conn.execute("SELECT Guid FROM AppGuid").fetchone()[0]
-                self.my_guid = uuid.UUID(guid)
-        except Exception as e:
-            print(e)
-        finally:
-            conn.close()
+                # TODO deal with this
+                pass
 
     def open_udp(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -92,16 +87,10 @@ class Client:
         sock.listen()
         return sock
     
-    def write_to_db(self, table_name, senderID, message):
-        try:
-            self.db_lock.acquire()
-            conn = sqlite3.connect('chat_info.db')
-            conn.execute(f"INSERT INTO {table_name} VALUES (?, ?)", (senderID, message))
-            conn.commit()
-        except sqlite3.Error as e:
-            print(e)
-        finally:
-            self.db_lock.release()
+    def write_to_db(self, table_name, sender_id, message):
+        result = self.db_manager.write_peer_message(table_name, sender_id, message)
+        if result is not True:
+            pass # do something
     
     def recv_tcp(self, tcp_socket):
         inputs = [tcp_socket, ]
@@ -111,21 +100,23 @@ class Client:
         while True:
             try:
                 readable, writable, exceptional = select.select(
-                    inputs + waiting + list(self.my_friends.keys()),
+                    inputs + waiting + list(self.peer_sockets.keys()),
                     outputs,
-                    inputs + waiting + list(self.my_friends.keys()))
+                    inputs + waiting + list(self.peer_sockets.keys()))
                 
                 for sock in readable:
                     if sock is tcp_socket:     # new chat, someone binded successfully
                         conn, addr = tcp_socket.accept()
                         waiting.append(conn)
-                    elif sock in self.my_friends:
+                    elif sock in self.peer_sockets:
                         data = sock.recv(2048)
                         if data:
                             message_dict = json.loads(data.decode())
                             message = TCPMessage(**message_dict)
                             self.write_to_db(str(message.senderID), str(message.senderID), message.message)
-                            # change GUI
+                            # TODO change GUI
+                            # TODO update peers info table
+                            # TODO check message ID
                     elif sock in waiting:
                         data = sock.recv(2048)
                         if data:
@@ -133,13 +124,10 @@ class Client:
                             message = TCPMessage(**message_dict)
                             if message.messageID is MessageID.INIT:
                                 waiting.remove(sock)
-                                self.my_friends[sock] = message.senderID
-                                self.init_db(message.senderID)
-
+                                self.peer_sockets[sock] = message.senderID
             except Exception as e:
                 print("SOMETHING IS BAD")
                 print(e)
-                sys.exit(0)  
 
     def send_tcp(self, direct_queue):    
         while True:
@@ -166,31 +154,18 @@ class Client:
                     message_dict = json.loads(data.decode())
                     message = UDPMessage(**message_dict)
                     if message.messageID is MessageID.ONLINE:
-                        self.online[message.senderID] = message.senderUsername
+                        self.online_peers.append(message.senderID)
                         if not message.message:
                             broadcast_queue.put((addr[0], MessageID.ONLINE, "ACK"))
                     elif message.messageID is MessageID.OFFLINE:
-                        del self.online[message.senderID]
+                        self.online_peers.remove(message.senderID)
                     elif message.messageID is MessageID.START: # someone wants to start TCP, connect to them using TCP socket
                         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                         sock.connect((addr[0], message.message)) # TODO conver to int
-                        self.my_friends[sock] = message.senderID
-                        self.init_db(message.senderID)
+                        self.peer_sockets[sock] = message.senderID
                         direct_queue.put((sock, MessageID.INIT, None))
-                    print(self.online)
             except Exception as e:
                 print(e)
-
-    def init_db(self, table_name):
-        conn = sqlite3.connect('chat_info.db')
-
-        try:
-            conn.execute("CREATE TABLE IF NOT EXISTS {table_name} (senderID TEXT, message TEXT)")
-            conn.commit()
-        except sqlite3.Error as e:
-            print(e)
-        finally:
-            conn.close()
     
     def send_udp(self, udp_socket, broadcast_queue):
         while True:
@@ -209,7 +184,6 @@ class Client:
         self.win.geometry(f"{width}x{height}")
         self.win.resizable(False, False)
         self.win.title("Definitely Not Discord")
-        tkinter.Widget
 
         left_frame = tkinter.Frame(self.win, width=int(width/4), height=height, bg="#2C2D31")
         left_frame.pack(side="left")
@@ -230,7 +204,6 @@ class Client:
 
         # for friend_name in self.chat_histories.keys():
         #     self.friends_listbox.insert(tkinter.END, friend_name)
-        self.update_recent_list()
 
         right_frame = tkinter.Frame(self.win, width=int(3*width/4), height=750, bg="#323338")
         right_frame.pack(side="right")
@@ -258,7 +231,7 @@ class Client:
         sendinput_button.pack(side="right")
 
         self.friends_listbox.select_set(0)
-        self.switch_chat_history(self.recent_chats[0])
+        # self.switch_chat_history(self.recent_chats[0])
 
         self.win.protocol("WM_DELETE_WINDOW", lambda arg=broadcast_queue: self.close_window(arg))
         self.win.mainloop()
@@ -280,18 +253,10 @@ class Client:
         
         self.friends_listbox.select_set(index)
         self.switch_chat_history(self.recent_chats[index])
-
-    # def switch_chat_history(self, friend_name):
-    #     self.chathistory_text.config(state="normal")
-    #     self.friendname_label.config(text=friend_name)
-    #     chat_history = self.chat_histories.get(friend_name, [])
-    #     self.chathistory_text.delete("1.0", tkinter.END)
-    #     self.chathistory_text.insert(tkinter.END, "\n".join(chat_history))
-    #     self.chathistory_text.config(state="disabled")
     
     def switch_chat_history(self, guid):
         self.chathistory_text.config(state="normal")
-        self.friendname_label.config(text=self.online[guid])
+        self.friendname_label.config(text=self.online_peers[guid])
         chat_history = self.fetch_history()
         self.chathistory_text.delete("1.0", tkinter.END)
         self.chathistory_text.insert(tkinter.END, "\n".join(chat_history))
@@ -303,7 +268,6 @@ class Client:
 
     def close_window(self, broadcast_queue):
         broadcast_queue.put((BROADCAST_IP, MessageID.OFFLINE, None))
-        self.win.destroy()
         time.sleep(2)
         os._exit(1)
 
