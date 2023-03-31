@@ -21,7 +21,7 @@ class SocketManager:
         udplistener_thread = threading.Thread(target=self.recv_udp, args=(udp_socket, ))
         udplistener_thread.start()
 
-        self.mediator.send_broadcast(BROADCAST_IP, MessageID.ONLINE, None)
+        self.mediator.put_udp_action(BROADCAST_IP, MessageID.ONLINE, None)
 
         udpsender_thread = threading.Thread(target=self.send_udp, args=(udp_socket, ))
         udpsender_thread.start()
@@ -68,12 +68,11 @@ class SocketManager:
                     elif sock in self.peer_sockets:
                         data = sock.recv(2048)
                         if data:
-                            print("Received a personal message")
                             message_dict = json.loads(data.decode())
                             message = Message(**message_dict)
                             if (message.messageID is MessageID.PERSONAL):
-                                print(message)
-                                self.mediator.receive_message(message.senderGUID, message.senderUsername, sock.getsockname(), message.message)
+                                print(f"Received a personal message: {message_dict}")
+                                self.mediator.put_ui_action(Actions.PEER_MESSAGE, message.senderGUID, message.senderUsername, sock.getsockname(), message.message)
                         else:
                             print("Someone is disconnecting")
                             self.mediator.remove_online_peer(self.peer_sockets[sock])
@@ -95,8 +94,8 @@ class SocketManager:
                                 message_to_send = self.mediator.get_waiting_message(message.senderGUID)
                                 print(f"Got waiting message: {message_to_send}")
                                 if message_to_send is not None:
-                                    self.mediator.send_message(message.senderGUID, message_to_send, True, message.senderUsername, sock.getsockname())
-                                    self.mediator.receive_message(True, message.senderGUID, message.senderUsername, sock.getsockname(), "")
+                                    self.mediator.put_tcp_action(Actions.MY_MESSAGE, message.senderGUID, MessageID.PERSONAL, message_to_send)
+                                    self.mediator.put_ui_action(Actions.MY_MESSAGE, message.senderGUID, message.senderUsername, sock.getsockname(), message_to_send)
                 for sock in exceptional:
                     self.mediator.remove_online_peer(self.peer_sockets[sock])
                     self.mediator.remove_connected_peer(self.peer_sockets[sock])
@@ -107,17 +106,16 @@ class SocketManager:
                 
     def send_tcp(self):    
         while True:
-            result = self.mediator.get_send_message()
+            result = self.mediator.get_tcp_action()
             if result is not None:
-                socket = list(self.peer_sockets.keys())[list(self.peer_sockets.values()).index(result[0])]
-                message = Message(result[1], str(self.mediator.get_my_guid()), "vickyko", result[2])
+                socket = list(self.peer_sockets.keys())[list(self.peer_sockets.values()).index(result[1])]
+                message = Message(result[0], str(self.mediator.get_my_guid()), "vickyko", result[2])
                 message_dict = vars(message)
                 message_json = json.dumps(message_dict)
                 try:
                     socket.sendall(message_json.encode())
                 except Exception as e:
                     print(f"Exception when sending TCP: {e}")
-                    pass
             time.sleep(0.2)
     
     def recv_udp(self, udp_socket):
@@ -134,15 +132,18 @@ class SocketManager:
                         print(f"{message.senderUsername} is online")
                         self.mediator.add_online_peer(message.senderGUID, message.senderUsername, addr)
                         if not message.message:
-                            self.mediator.send_broadcast(message.senderGUID, MessageID.ONLINE, "ACK")
+                            self.mediator.put_udp_action(message.senderGUID, MessageID.ONLINE, "ACK")
                     elif message.messageID == MessageID.OFFLINE:
                         self.mediator.remove_online_peer(message.senderGUID)
                     elif message.messageID == MessageID.START: # someone wants to start TCP, connect to them using TCP socket
                         print("Received START message")
                         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        sock.connect((addr[0], int(message.message)))
-                        self.peer_sockets[sock] = message.senderGUID
-                        self.mediator.send_message(message.senderGUID, None, False, message_id=MessageID.INIT)
+                        try:
+                            sock.connect((addr[0], int(message.message)))
+                            self.peer_sockets[sock] = message.senderGUID
+                            self.mediator.put_tcp_action(Actions.INIT, message.senderGUID, MessageID.INIT, None)
+                        except Exception as e:
+                            print(f"Exception connection to peer: {e}")
                     else:
                         print("im in else")
             except Exception as e:
@@ -150,7 +151,7 @@ class SocketManager:
                 
     def send_udp(self, udp_socket):
         while True:
-            result = self.mediator.get_send_broadcast()
+            result = self.mediator.get_udp_action()
             if result is not None:
                 if result[1] == MessageID.OFFLINE:
                     self.disconnect_tcp_sockets()
@@ -158,7 +159,8 @@ class SocketManager:
                 if result[1] == MessageID.START:
                     message_content = TCP_PORT
                 else:
-                    message_content = result[2]    
+                    message_content = result[2] 
+                       
                 message = Message(result[1], str(self.mediator.get_my_guid()), "vickyko", message_content)
                 message_dict = vars(message)
                 message_json = json.dumps(message_dict)

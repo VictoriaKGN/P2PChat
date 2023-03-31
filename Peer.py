@@ -165,17 +165,17 @@ class Peer:
         else:
             return None
         
-    def put_ui_action(self, action_type, peer_guid, peer_username, peer_address, sender_guid, message_content):
-        self.TCP_in_queue.put((action_type, peer_guid, peer_username, peer_address, sender_guid, message_content))
+    def put_ui_action(self, action_type, peer_guid, peer_username, peer_address, message_content):
+        self.TCP_in_queue.put((action_type, peer_guid, peer_username, peer_address, message_content))
     
     def get_ui_action(self):
         if self.TCP_in_queue.qsize() > 0:
-            popped = self.TCP_in_queue.get(block=False) # popped = (action_type, peer_guid, peer_username, peer_address, sender_guid, message_content)
-            action_type, peer_guid, peer_username, peer_address, sender_guid, message_content = popped
+            popped = self.TCP_in_queue.get(block=False) # popped = (action_type, peer_guid, peer_username, peer_address, message_content)
+            action_type, peer_guid, peer_username, peer_address, message_content = popped
 
             if action_type == Actions.MY_MESSAGE:
                 self.write_to_db(peer_guid, str(self.my_guid), message_content)
-                updated = self.db_manager.update_peer_lastchat(peer_guid, datetime.now())
+                updated = self.db_manager.update_peer_info(peer_guid, peer_username, f"{peer_address[0]}:{str(peer_address[1])}", datetime.now())
                 if updated is True:
                     fetched = self.db_manager.fetch_peers_info()
                     if fetched is not False:
@@ -208,12 +208,15 @@ class Peer:
             return None
 
     def put_tcp_actions(self, action_type, peer_guid, message_id, message_content):
-        self.TCP_out_queue.put((peer_guid, message_id, message_content))
+        self.TCP_out_queue.put((message_id, peer_guid, message_content))
 
     def get_tcp_action(self):
-        pass
+        if self.TCP_out_queue.qsize() > 0:
+            return self.TCP_out_queue.get(block=False)
+        else:
+            return None
         
-    def send_broadcast(self, to_send_guid, message_id, message):
+    def put_udp_action(self, to_send_guid, message_id, message):
         if to_send_guid == "255.255.255.255":
             self.UDP_out_queue.put((to_send_guid, message_id, message))
         else:
@@ -223,7 +226,7 @@ class Peer:
             else:
                 self.UDP_out_queue.put((self.online_peers[to_send_guid][0][0], message_id, message))
 
-    def get_send_broadcast(self):
+    def get_udp_action(self):
         if self.UDP_out_queue.qsize() > 0:
             return self.UDP_out_queue.get(block=False)
         else:
@@ -288,7 +291,7 @@ class Peer:
         pass
 
     def close_window(self):
-        self.send_broadcast("255.255.255.255", MessageID.OFFLINE, None)
+        self.put_udp_action("255.255.255.255", MessageID.OFFLINE, None)
         # broadcast_queue.put((BROADCAST_IP, MessageID.OFFLINE, None))
         time.sleep(2)
         os._exit(1)
