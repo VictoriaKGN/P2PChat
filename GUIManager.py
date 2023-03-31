@@ -1,6 +1,6 @@
 import threading
 import tkinter
-import queue
+from message import *
 
 WIDTH = 1200
 HEIGHT = 750
@@ -19,62 +19,150 @@ class GUIManager(threading.Thread):
         left_frame = tkinter.Frame(self.win, width=int(WIDTH/4), height=HEIGHT, bg="#2C2D31")
         left_frame.pack(side="left")
 
-        newchat_button = tkinter.Button(left_frame, text="New Chat", bg="#414249", fg="#FFFFFF", activebackground="#414249", activeforeground="#FFFFFF")
+        newchat_button = tkinter.Button(left_frame, text="New Chat", bg="#414249", fg="#FFFFFF", activebackground="#414249", activeforeground="#FFFFFF", command=self.show_online_list)
         newchat_button.pack(side="top", padx=10, pady=10)
 
-        self.friends_listbox = tkinter.Listbox(left_frame, bg="#2C2D31", fg="#FFFFFF", width=32, height=50, borderwidth=0, highlightthickness=0, font=12, selectbackground="#414249", activestyle="none", exportselection=False)
-        self.friends_listbox.pack(side="bottom", padx=10, pady=10)
-        self.friends_listbox.bind('<<ListboxSelect>>', lambda event=None: self.switch_chat_history(self.recent_chats[self.friends_listbox.curselection()]))
-
+        self.recents_listbox = tkinter.Listbox(left_frame, bg="#2C2D31", fg="#FFFFFF", width=32, height=50, borderwidth=0, highlightthickness=0, font=12, selectbackground="#414249", activestyle="none", exportselection=False)
+        self.recents_listbox.pack(side="bottom", padx=10, pady=10)
+        self.recents_listbox.bind('<<ListboxSelect>>', lambda event=None: self.new_selection(self.recents_listbox.curselection()[0]))
         right_frame = tkinter.Frame(self.win, width=int(3*WIDTH/4), height=HEIGHT, bg="#323338")
         right_frame.pack(side="right")
 
-        placeholder_frame = tkinter.Frame(right_frame, width=int(3*WIDTH/4), height=HEIGHT, bg="#323338")
+        self.placeholder_frame = tkinter.Frame(right_frame, width=int(3*WIDTH/4), height=HEIGHT, bg="#323338")
         #placeholder_frame.pack(side="top", pady=5)
-        placeholder_frame.pack_forget()
+        self.placeholder_frame.pack_forget()
 
-        name_frame = tkinter.Frame(placeholder_frame, width=20, height=40, bg="#323338")
+        name_frame = tkinter.Frame(self.placeholder_frame, width=20, height=40, bg="#323338")
         name_frame.pack(side="top", pady=5)
 
-        circle_canvas = tkinter.Canvas(name_frame, width=15, height=15, bg="#323338", borderwidth=0, highlightthickness=0)
-        circle_canvas.pack(side="left", padx=2)
-        circle_canvas.create_oval(2, 2, 15, 15, fill="Green")
+        self.status_canvas = tkinter.Canvas(name_frame, width=15, height=15, bg="#323338", borderwidth=0, highlightthickness=0)
+        self.status_canvas.pack(side="left", padx=2)
+        self.oval_id = self.status_canvas.create_oval(2, 2, 15, 15)
 
         self.friendname_label = tkinter.Label(name_frame, text="", bg="#323338", fg="#FFFFFF", font=12)
         self.friendname_label.pack(side="right", padx=2)
 
-        self.chathistory_text = tkinter.Text(placeholder_frame, width=110, height=41, bg="#323338", fg="#FFFFFF", borderwidth=0, highlightthickness=0)
+        self.chathistory_text = tkinter.Text(self.placeholder_frame, width=110, height=41, bg="#323338", fg="#FFFFFF", borderwidth=0, highlightthickness=0)
         self.chathistory_text.pack(side="top", padx=10, pady=5)
+        self.chathistory_text.tag_config("right", justify="right")
 
-        input_frame = tkinter.Frame(placeholder_frame, bg="#323338", width=540, height=50)
+        input_frame = tkinter.Frame(self.placeholder_frame, bg="#323338", width=540, height=50)
         input_frame.pack(side="bottom", padx=10, pady=6)
         
-        input_text = tkinter.Text(input_frame, width=100, height=1, bg="#414249", fg="#FFFFFF", borderwidth=0, highlightthickness=0)
-        input_text.pack(side="left")
+        self.input_text = tkinter.Text(input_frame, width=100, height=1, bg="#414249", fg="#FFFFFF", borderwidth=0, highlightthickness=0)
+        self.input_text.pack(side="left")
         
-        sendinput_button = tkinter.Button(input_frame, text="Send", bg="#414249", fg="#FFFFFF", activebackground="#414249", activeforeground="#FFFFFF", command= lambda: self.send_message(input_text.get("1.0", tkinter.END), self.friends_listbox.curselection()))
+        sendinput_button = tkinter.Button(input_frame, text="Send", bg="#414249", fg="#FFFFFF", activebackground="#414249", activeforeground="#FFFFFF", command= lambda: self.send_message(self.input_text.get("1.0", tkinter.END).strip(), self.recents_listbox.curselection()))
         sendinput_button.pack(side="right")
 
+        self.win.protocol("WM_DELETE_WINDOW", self.close_window)
+
+        self.init_recents()
+
+        self.win.after(100, self.catch_new_messages)
         self.win.mainloop()
-        
-        while True:
-            result = self.mediator.get_receive_message()
-            if result is not None:
-                sender_id = result[0]
-                message = result[1]
-                # TODO update GUI 
+            
+            
+    def catch_new_messages(self):
+        result = self.mediator.get_receive_message() # result = (sender_guid, curr_index)
+        if result is not None:
+            print(result)
+            self.handle_new_message(result[0], result[1]) 
+        self.win.after(100, self.catch_new_messages)
+
+    def handle_new_message(self, sender_guid, curr_index):
+        self.update_recents_list(curr_index)
+        if curr_index == 0:
+            self.update_right_frame(curr_index)
 
     def close_window(self):
         self.win.destroy()
-        #self.peer.close_window()
+        self.mediator.close_window()
 
-    def update_recents_list(self):
-        pass
+    def init_recents(self):
+        self.recents_listbox.delete(0, tkinter.END)
+        recent_list = self.mediator.get_peers_info()
+        for row in recent_list:
+            self.recents_listbox.insert(tkinter.END, row[1])
 
-    def update_right_frame(self, is_online, username, chat_list):
-        pass
+    def update_recents_list(self, curr_index):
+        self.recents_listbox.delete(0, tkinter.END)
+        recent_list = self.mediator.get_peers_info()
+        for row in recent_list:
+            self.recents_listbox.insert(tkinter.END, row[1])
+        self.recents_listbox.select_set(curr_index)
+
+    def update_right_frame(self, index):
+        self.placeholder_frame.pack(side="top", pady=5)
+        username = self.recents_listbox.get(index)
+        self.friendname_label.config(text=username)
+        peer_guid = self.mediator.get_index_guid(index)
+        is_online = self.mediator.is_online(peer_guid)
+        if is_online is True:
+            self.status_canvas.itemconfig(self.oval_id, fill="Green")
+        else:
+            self.status_canvas.itemconfig(self.oval_id, fill="Grey")
+        self.update_chat_history(peer_guid)
     
     def send_message(self, message, send_to_index):
-        # TODO update gui
-        # TODO send to mediator
-        self.mediator.send_message(send_to_index, message)
+        self.input_text.delete("1.0", tkinter.END)
+        if len(send_to_index) > 0:
+            send_to_index = send_to_index[0]
+            if self.mediator.is_online(self.mediator.get_index_guid(send_to_index)) is True:
+                self.mediator.send_message(send_to_index, message, False)
+                self.recents_listbox.selection_clear(0, tkinter.END)
+                self.update_recents_list(self.mediator.get_curr_index())
+                self.update_right_frame(self.mediator.get_curr_index())
+                self.recents_listbox.select_set(0)
+            else:
+                self.chathistory_text.config(state="normal")
+                self.chathistory_text.insert(tkinter.END, "\n**** MESSAGE NOT SENT: PEER NOT ONLINE ****", "right") 
+                self.chathistory_text.config(state="disabled")
+        else:
+            guid = self.friendname_label.cget("text")
+            self.mediator.send_broadcast(guid, MessageID.START, message)
+
+    def new_selection(self, index):
+        self.mediator.set_curr_index(index)
+        self.update_right_frame(index)
+        self.mediator.set_draft_guid(None)
+
+    def update_chat_history(self, peer_guid):
+        self.chathistory_text.config(state="normal")
+        self.chathistory_text.delete("1.0", tkinter.END)
+        chat_history = self.mediator.get_peer_history(peer_guid)
+        print(chat_history)
+        for row in chat_history:
+            if row[0] is str(peer_guid): # their message
+                self.chathistory_text.insert(tkinter.END, "\n" + row[1])
+            else: # my message
+                self.chathistory_text.insert(tkinter.END, "\n" + row[1], "right")
+        self.chathistory_text.config(state="disabled")
+
+    def show_online_list(self):
+        self.popup = tkinter.Toplevel()
+        self.popup.title("Peers Online")
+        self.popup.geometry("400x400")
+
+        listbox = tkinter.Listbox(self.popup, exportselection=False, width=400, height=400)
+        listbox.pack()
+
+        online_peers = self.mediator.get_online_list()
+        listbox.insert(tkinter.END, *online_peers)
+
+        listbox.bind('<<ListboxSelect>>', lambda event=None: self.new_chat(online_peers[listbox.curselection()[0]]))
+
+    def new_chat(self, guid):
+        self.popup.destroy()
+        self.placeholder_frame.pack(side="top", pady=5)
+        self.recents_listbox.selection_clear(0, tkinter.END)
+        self.friendname_label.config(text=guid)
+        # TODO change online status
+        self.chathistory_text.delete("1.0", tkinter.END)
+        self.mediator.set_curr_index(None)
+        self.chathistory_text.config(state="normal")
+        self.chathistory_text.delete("1.0", tkinter.END)
+        self.chathistory_text.config(state="disabled")
+
+
+

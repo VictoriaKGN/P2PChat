@@ -1,16 +1,10 @@
 from enum import IntEnum
 
-class UDPMessage:
-    def __init__(self, messageID, senderID, senderUsername, message):
+class Message:
+    def __init__(self, messageID, senderGUID, senderUsername, message):
         self.messageID = messageID
-        self.senderID = senderID
+        self.senderGUID = senderGUID
         self.senderUsername = senderUsername
-        self.message = message
-
-class TCPMessage:
-    def __init__(self, messageID, senderID, message):
-        self.messageID = messageID
-        self.senderID = senderID
         self.message = message
 
 class MessageID(IntEnum):
