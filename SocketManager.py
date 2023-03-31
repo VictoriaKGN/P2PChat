@@ -62,7 +62,6 @@ class SocketManager:
                 for sock in readable:
                     if sock is tcp_socket:     # new chat, someone binded successfully
                         conn, addr = tcp_socket.accept()
-                        conn.settimeout()
                         waiting.append(conn)
                         print(f"Someone new connected from: {addr}")
                         # TODO update peers info - address and username if needed, only if already present in db
@@ -76,7 +75,9 @@ class SocketManager:
                                 print(message)
                                 self.mediator.receive_message(message.senderGUID, message.senderUsername, sock.getsockname(), message.message)
                         else:
+                            print("Someone is disconnecting")
                             self.mediator.remove_online_peer(self.peer_sockets[sock])
+                            self.mediator.remove_connected_peer(self.peer_sockets[sock])
                             del self.peer_sockets[sock]
                     elif sock in waiting:
                         data = sock.recv(2048)
@@ -89,6 +90,7 @@ class SocketManager:
                                 waiting.remove(sock)
                                 print("Removed from waiting")
                                 self.peer_sockets[sock] = message.senderGUID
+                                self.mediator.add_connected_peer(message.senderGUID)
                                 print("added to peer_sockets")
                                 message_to_send = self.mediator.get_waiting_message(message.senderGUID)
                                 print(f"Got waiting message: {message_to_send}")
@@ -97,6 +99,7 @@ class SocketManager:
                                     self.mediator.receive_message(True, message.senderGUID, message.senderUsername, sock.getsockname(), "")
                 for sock in exceptional:
                     self.mediator.remove_online_peer(self.peer_sockets[sock])
+                    self.mediator.remove_connected_peer(self.peer_sockets[sock])
                     del self.peer_sockets[sock] 
             except Exception as e:
                 print("SOMETHING IS BAD")
@@ -106,13 +109,14 @@ class SocketManager:
         while True:
             result = self.mediator.get_send_message()
             if result is not None:
-                socket = {i for i in self.peer_sockets if self.peer_sockets[i] == result[0]}
+                socket = list(self.peer_sockets.keys())[list(self.peer_sockets.values()).index(result[0])]
                 message = Message(result[1], str(self.mediator.get_my_guid()), "vickyko", result[2])
                 message_dict = vars(message)
                 message_json = json.dumps(message_dict)
                 try:
                     socket.sendall(message_json.encode())
-                except Exception:
+                except Exception as e:
+                    print(f"Exception when sending TCP: {e}")
                     pass
             time.sleep(0.2)
     
@@ -134,11 +138,11 @@ class SocketManager:
                     elif message.messageID == MessageID.OFFLINE:
                         self.mediator.remove_online_peer(message.senderGUID)
                     elif message.messageID == MessageID.START: # someone wants to start TCP, connect to them using TCP socket
+                        print("Received START message")
                         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        sock.connect((addr[0], message.message)) # TODO conver to int
+                        sock.connect((addr[0], int(message.message)))
                         self.peer_sockets[sock] = message.senderGUID
-                        self.mediator.send_message()
-                        # direct_queue.put((sock, MessageID.INIT, None)) TODO
+                        self.mediator.send_message(message.senderGUID, None, False, message_id=MessageID.INIT)
                     else:
                         print("im in else")
             except Exception as e:
@@ -148,6 +152,9 @@ class SocketManager:
         while True:
             result = self.mediator.get_send_broadcast()
             if result is not None:
+                if result[1] == MessageID.OFFLINE:
+                    self.disconnect_tcp_sockets()
+
                 if result[1] == MessageID.START:
                     message_content = TCP_PORT
                 else:
@@ -157,3 +164,7 @@ class SocketManager:
                 message_json = json.dumps(message_dict)
                 udp_socket.sendto(message_json.encode(), (result[0], UDP_PORT))
             time.sleep(0.2)
+
+    def disconnect_tcp_sockets(self):
+        for sock in self.peer_sockets.keys():
+            sock.close()

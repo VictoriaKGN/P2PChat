@@ -5,7 +5,7 @@ from message import *
 WIDTH = 1200
 HEIGHT = 750
 
-class GUIManager(threading.Thread):
+class UIManager(threading.Thread):
     def __init__(self, mediator):
         self.mediator = mediator
         threading.Thread.__init__(self)
@@ -39,8 +39,8 @@ class GUIManager(threading.Thread):
         self.status_canvas.pack(side="left", padx=2)
         self.oval_id = self.status_canvas.create_oval(2, 2, 15, 15)
 
-        self.friendname_label = tkinter.Label(name_frame, text="", bg="#323338", fg="#FFFFFF", font=12)
-        self.friendname_label.pack(side="right", padx=2)
+        self.peername_label = tkinter.Label(name_frame, text="", bg="#323338", fg="#FFFFFF", font=12)
+        self.peername_label.pack(side="right", padx=2)
 
         self.chathistory_text = tkinter.Text(self.placeholder_frame, width=110, height=41, bg="#323338", fg="#FFFFFF", borderwidth=0, highlightthickness=0)
         self.chathistory_text.pack(side="top", padx=10, pady=5)
@@ -64,16 +64,13 @@ class GUIManager(threading.Thread):
             
             
     def catch_new_messages(self):
-        result = self.mediator.get_receive_message() # result = (sender_guid, curr_index)
+        result = self.mediator.get_ui_action() # result = (action_type, peer_guid, peer_username, curr_index)
         if result is not None:
-            print(result)
-            self.handle_new_message(result[0], result[1]) 
-        self.win.after(100, self.catch_new_messages)
+            self.update_recents_list(result[3])
+            if result[3] == 0:
+                self.update_right_frame(result[3], result[1], result[2])
 
-    def handle_new_message(self, sender_guid, curr_index):
-        self.update_recents_list(curr_index)
-        if curr_index == 0:
-            self.update_right_frame(curr_index)
+        self.win.after(100, self.catch_new_messages)
 
     def close_window(self):
         self.win.destroy()
@@ -92,11 +89,9 @@ class GUIManager(threading.Thread):
             self.recents_listbox.insert(tkinter.END, row[1])
         self.recents_listbox.select_set(curr_index)
 
-    def update_right_frame(self, index):
+    def update_right_frame(self, index, peer_guid, peer_username):
         self.placeholder_frame.pack(side="top", pady=5)
-        username = self.recents_listbox.get(index)
-        self.friendname_label.config(text=username)
-        peer_guid = self.mediator.get_index_guid(index)
+        self.peername_label.config(text=peer_username)
         is_online = self.mediator.is_online(peer_guid)
         if is_online is True:
             self.status_canvas.itemconfig(self.oval_id, fill="Green")
@@ -106,21 +101,25 @@ class GUIManager(threading.Thread):
     
     def send_message(self, message, send_to_index):
         self.input_text.delete("1.0", tkinter.END)
-        if len(send_to_index) > 0:
+
+        if len(send_to_index) > 0: # selection
             send_to_index = send_to_index[0]
-            if self.mediator.is_online(self.mediator.get_index_guid(send_to_index)) is True:
-                self.mediator.send_message(send_to_index, message, False)
-                self.recents_listbox.selection_clear(0, tkinter.END)
-                self.update_recents_list(self.mediator.get_curr_index())
-                self.update_right_frame(self.mediator.get_curr_index())
-                self.recents_listbox.select_set(0)
-            else:
+            guid = self.mediator.get_index_guid(send_to_index)
+            if self.mediator.is_online(guid): # if online
+                if self.is_peer_connected(guid): # if connected
+                    self.mediator.send_message(guid, message, False)
+                else: # if not connected
+                    self.mediator.send_broadcast(guid, MessageID.START, message)
+            else: # if offline
                 self.chathistory_text.config(state="normal")
                 self.chathistory_text.insert(tkinter.END, "\n**** MESSAGE NOT SENT: PEER NOT ONLINE ****", "right") 
                 self.chathistory_text.config(state="disabled")
-        else:
-            guid = self.friendname_label.cget("text")
-            self.mediator.send_broadcast(guid, MessageID.START, message)
+        else: # no selection
+            guid = self.peername_label.cget("text")
+            if self.mediator.is_online(guid) and self.mediator.is_peer_connected(guid): # if connected
+                self.mediator.send_message(guid, message, False)
+            else: # if online
+                self.mediator.send_broadcast(guid, MessageID.START, message)
 
     def new_selection(self, index):
         self.mediator.set_curr_index(index)
@@ -131,7 +130,6 @@ class GUIManager(threading.Thread):
         self.chathistory_text.config(state="normal")
         self.chathistory_text.delete("1.0", tkinter.END)
         chat_history = self.mediator.get_peer_history(peer_guid)
-        print(chat_history)
         for row in chat_history:
             if row[0] is str(peer_guid): # their message
                 self.chathistory_text.insert(tkinter.END, "\n" + row[1])
@@ -156,7 +154,7 @@ class GUIManager(threading.Thread):
         self.popup.destroy()
         self.placeholder_frame.pack(side="top", pady=5)
         self.recents_listbox.selection_clear(0, tkinter.END)
-        self.friendname_label.config(text=guid)
+        self.peername_label.config(text=guid)
         # TODO change online status
         self.chathistory_text.delete("1.0", tkinter.END)
         self.mediator.set_curr_index(None)

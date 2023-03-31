@@ -13,3 +13,11 @@ class MessageID(IntEnum):
     START = 3
     INIT = 4
     PERSONAL = 5
+
+class Actions(IntEnum):
+    MY_MESSAGE = 1
+    PEER_MESSAGE = 2
+    NEW_CHAT = 3
+    REFRESH = 4
+    INIT = 5
+    PERSONAL = 6

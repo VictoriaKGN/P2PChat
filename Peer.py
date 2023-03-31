@@ -1,6 +1,6 @@
 from message import *
 from DBManager import DBManager
-from GUIManager import GUIManager
+from UIManager import UIManager
 from SocketManager import SocketManager
 import socket
 import threading
@@ -22,8 +22,8 @@ class Peer:
     my_guid = None
     online_peers = {} # dict guid: [addr, username] 
     peers_info = [] # list of (Guid, Username, Address, LastChat)
-    draft_guid = None
     waiting_messages = {} # dict guid: message
+    connected_peers = [] # list of guids
     
     db_lock = threading.Lock()
 
@@ -38,7 +38,7 @@ class Peer:
         self.init_guid()
         self.init_peers_info()
 
-        gui_thread = GUIManager(self)
+        gui_thread = UIManager(self)
         gui_thread.start()
         
         self.socket_manager = SocketManager(self)
@@ -67,9 +67,6 @@ class Peer:
     
     def get_online_list(self):
         return list(self.online_peers.keys())
-    
-    def set_draft_guid(self, guid):
-        self.draft_guid = guid
 
     def get_online_addr(self, guid):
         return self.online_peers[guid]
@@ -80,11 +77,21 @@ class Peer:
 
     def remove_online_peer(self, guid):
         del self.online_peers[guid]
+        print(f"Online Peers: {self.online_peers}")
 
     def get_waiting_message(self, guid):
         message = self.waiting_messages[guid]
         del self.waiting_messages[guid]
         return message
+    
+    def add_connected_peer(self, guid):
+        self.connected_peers.append(guid)
+
+    def remove_connected_peer(self, guid):
+        self.connected_peers.remove(guid)
+
+    def is_peer_connected(self, guid):
+        return guid in self.connected_peers
 
     ########################### Shared Queues Functions ###########################
         
@@ -109,7 +116,7 @@ class Peer:
                     fetched = self.db_manager.fetch_peers_info()
                     if fetched is not False:
                         self.peers_info = fetched
-                        print(self.peers_info)
+                        print(f"Peers info: {self.peers_info}")
             else:
                 curr_guid = self.peers_info[self.curr_index][1]
                 updated = self.db_manager.update_peer_info(str(popped[1]), popped[2], popped[3], datetime.now())
@@ -131,15 +138,10 @@ class Peer:
         else:
             return None
         
-    def send_message(self, send_to_index, message, is_first, username=None, addr=None):
-        if send_to_index in self.online_peers.keys():
-            guid = send_to_index
-        else:
-            guid = self.peers_info[send_to_index][0]
-
+    def send_message(self, guid, message, is_first, username=None, addr=None, message_id=MessageID.PERSONAL):
         print(f"Checking if {guid} is online: {guid in self.online_peers}")
         if guid in self.online_peers:
-            self.write_to_db(guid, str(self.my_guid), message)
+            self.write_to_db(guid, str(self.my_guid), message) # TODO check if its init
             self.curr_index = 0
 
             if is_first is not True:
@@ -152,32 +154,77 @@ class Peer:
                 if fetched is not False:
                     self.peers_info = fetched
                     print(self.peers_info)
-            self.TCP_out_queue.put((guid, MessageID.PERSONAL, message))
-        
+            self.TCP_out_queue.put((guid, message_id, message))
+
+        if not message_id == MessageID.INIT:
+            self.TCP_out_queue.put((guid, message_id, message))
+
     def get_send_message(self):
         if self.TCP_out_queue.qsize() > 0: 
             return self.TCP_out_queue.get(block=False)
         else:
             return None
         
+    def put_ui_action(self, action_type, peer_guid, peer_username, peer_address, sender_guid, message_content):
+        self.TCP_in_queue.put((action_type, peer_guid, peer_username, peer_address, sender_guid, message_content))
+    
+    def get_ui_action(self):
+        if self.TCP_in_queue.qsize() > 0:
+            popped = self.TCP_in_queue.get(block=False) # popped = (action_type, peer_guid, peer_username, peer_address, sender_guid, message_content)
+            action_type, peer_guid, peer_username, peer_address, sender_guid, message_content = popped
+
+            if action_type == Actions.MY_MESSAGE:
+                self.write_to_db(peer_guid, str(self.my_guid), message_content)
+                updated = self.db_manager.update_peer_lastchat(peer_guid, datetime.now())
+                if updated is True:
+                    fetched = self.db_manager.fetch_peers_info()
+                    if fetched is not False:
+                        self.peers_info = fetched
+                    else:
+                        pass # TODO deal with it
+                else:
+                    pass # TODO deal with it
+                self.curr_index = 0
+            elif action_type == Actions.PEER_MESSAGE:
+                curr_guid = self.peers_info[self.curr_index][1]
+                self.write_to_db(peer_guid, peer_guid, message_content)
+                updated = self.db_manager.update_peer_info(peer_guid, peer_username, f"{peer_address[0]}:{str(peer_address[1])}", datetime.now())
+                if updated is True:
+                    fetched = self.db_manager.fetch_peers_info()
+                    if fetched is not False:
+                        self.peers_info = fetched
+                    else:
+                        pass # TODO deal with it
+                else:
+                    pass # TODO deal with it
+                
+                if curr_guid is self.peers_info[1][0]:
+                    self.curr_index = 0
+                else:
+                    if self.curr_index is not None: 
+                        self.curr_index += 1
+            return (action_type, peer_guid, peer_username, self.curr_index)
+        else:
+            return None
+
+    def put_tcp_actions(self, action_type, peer_guid, message_id, message_content):
+        self.TCP_out_queue.put((peer_guid, message_id, message_content))
+
+    def get_tcp_action(self):
+        pass
+        
     def send_broadcast(self, to_send_guid, message_id, message):
         if to_send_guid == "255.255.255.255":
             self.UDP_out_queue.put((to_send_guid, message_id, message))
         else:
-            # print("Im in send_broadcast")
-            # print(f"Guid: {to_send_guid}, Online Value: {self.online_peers[to_send_guid]}, Addr: {self.online_peers[to_send_guid][0]}, IP: {self.online_peers[to_send_guid][0][0]}")
             if message_id == MessageID.START:
                 self.waiting_messages[to_send_guid] = message
                 self.UDP_out_queue.put((self.online_peers[to_send_guid][0][0], message_id, None))
             else:
                 self.UDP_out_queue.put((self.online_peers[to_send_guid][0][0], message_id, message))
-            
-            # print(f"Queue size {self.UDP_out_queue.qsize()}")
 
     def get_send_broadcast(self):
         if self.UDP_out_queue.qsize() > 0:
-            # TODO update database
-            # print("Im am in get_send_broadcast")
             return self.UDP_out_queue.get(block=False)
         else:
             return None
@@ -241,6 +288,7 @@ class Peer:
         pass
 
     def close_window(self):
+        self.send_broadcast("255.255.255.255", MessageID.OFFLINE, None)
         # broadcast_queue.put((BROADCAST_IP, MessageID.OFFLINE, None))
         time.sleep(2)
         os._exit(1)
