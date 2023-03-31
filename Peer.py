@@ -31,7 +31,7 @@ class Peer:
 
     def __init__(self):
         self.TCP_out_queue = queue.Queue()
-        self.TCP_in_queue = queue.Queue()
+        self.UI_queue = queue.Queue()
         self.UDP_out_queue = queue.Queue()
 
         self.db_manager = DBManager()
@@ -95,82 +95,82 @@ class Peer:
 
     ########################### Shared Queues Functions ###########################
         
-    def receive_message(self, is_me, sender_guid, sender_username, address, message):
-        self.TCP_in_queue.put((is_me, sender_guid, sender_username, address, message))
+    # def receive_message(self, is_me, sender_guid, sender_username, address, message):
+    #     self.UI_queue.put((is_me, sender_guid, sender_username, address, message))
         
-    def get_receive_message(self):
-        if self.TCP_in_queue.qsize() > 0:
-            # TODO update chat history
-            popped = self.TCP_in_queue.get(block=False)
+    # def get_receive_message(self):
+    #     if self.UI_queue.qsize() > 0:
+    #         # TODO update chat history
+    #         popped = self.UI_queue.get(block=False)
 
-            if popped[0] is not True:
-                self.write_to_db(popped[1], popped[1], popped[4])
+    #         if popped[0] is not True:
+    #             self.write_to_db(popped[1], popped[1], popped[4])
 
-            if self.curr_index is None:
-                if popped[0] is True:
-                    self.curr_index = 0
-                else:
-                    self.curr_index = None
-                updated = self.db_manager.update_peer_info(str(popped[1]), popped[2], f"{popped[3][0]}:{str(popped[3][1])}", datetime.now())
-                if updated is True:
-                    fetched = self.db_manager.fetch_peers_info()
-                    if fetched is not False:
-                        self.peers_info = fetched
-                        print(f"Peers info: {self.peers_info}")
-            else:
-                curr_guid = self.peers_info[self.curr_index][1]
-                updated = self.db_manager.update_peer_info(str(popped[1]), popped[2], popped[3], datetime.now())
-                if updated is True:
-                    fetched = self.db_manager.fetch_peers_info()
-                    if fetched is not False:
-                        self.peers_info = fetched
-                        if curr_guid is self.peers_info[1][0]: # incoming message from selected peer
-                            self.curr_index = 0
-                        else: # incoming message from non-selected peer
-                            self.curr_index += 1
-                    else:
-                        # TODO deal with it
-                        pass
-                else:
-                    # TODO deal with it
-                    pass
-            return (popped[1], self.curr_index)
-        else:
-            return None
+    #         if self.curr_index is None:
+    #             if popped[0] is True:
+    #                 self.curr_index = 0
+    #             else:
+    #                 self.curr_index = None
+    #             updated = self.db_manager.update_peer_info(str(popped[1]), popped[2], f"{popped[3][0]}:{str(popped[3][1])}", datetime.now())
+    #             if updated is True:
+    #                 fetched = self.db_manager.fetch_peers_info()
+    #                 if fetched is not False:
+    #                     self.peers_info = fetched
+    #                     print(f"Peers info: {self.peers_info}")
+    #         else:
+    #             curr_guid = self.peers_info[self.curr_index][1]
+    #             updated = self.db_manager.update_peer_info(str(popped[1]), popped[2], popped[3], datetime.now())
+    #             if updated is True:
+    #                 fetched = self.db_manager.fetch_peers_info()
+    #                 if fetched is not False:
+    #                     self.peers_info = fetched
+    #                     if curr_guid is self.peers_info[1][0]: # incoming message from selected peer
+    #                         self.curr_index = 0
+    #                     else: # incoming message from non-selected peer
+    #                         self.curr_index += 1
+    #                 else:
+    #                     # TODO deal with it
+    #                     pass
+    #             else:
+    #                 # TODO deal with it
+    #                 pass
+    #         return (popped[1], self.curr_index)
+    #     else:
+    #         return None
         
-    def send_message(self, guid, message, is_first, username=None, addr=None, message_id=MessageID.PERSONAL):
-        print(f"Checking if {guid} is online: {guid in self.online_peers}")
-        if guid in self.online_peers:
-            self.write_to_db(guid, str(self.my_guid), message) # TODO check if its init
-            self.curr_index = 0
+    # def send_message(self, guid, message, is_first, username=None, addr=None, message_id=MessageID.PERSONAL):
+    #     print(f"Checking if {guid} is online: {guid in self.online_peers}")
+    #     if guid in self.online_peers:
+    #         self.write_to_db(guid, str(self.my_guid), message) # TODO check if its init
+    #         self.curr_index = 0
 
-            if is_first is not True:
-                updated = self.db_manager.update_peer_lastchat(guid, datetime.now())
-            else:
-                updated = self.db_manager.update_peer_info(guid, username, f"{addr[0]}:{str(addr[1])}", datetime.now())
+    #         if is_first is not True:
+    #             updated = self.db_manager.update_peer_lastchat(guid, datetime.now())
+    #         else:
+    #             updated = self.db_manager.update_peer_info(guid, username, f"{addr[0]}:{str(addr[1])}", datetime.now())
 
-            if updated is True:
-                fetched = self.db_manager.fetch_peers_info()
-                if fetched is not False:
-                    self.peers_info = fetched
-                    print(self.peers_info)
-            self.TCP_out_queue.put((guid, message_id, message))
+    #         if updated is True:
+    #             fetched = self.db_manager.fetch_peers_info()
+    #             if fetched is not False:
+    #                 self.peers_info = fetched
+    #                 print(self.peers_info)
+    #         self.TCP_out_queue.put((guid, message_id, message))
 
-        if not message_id == MessageID.INIT:
-            self.TCP_out_queue.put((guid, message_id, message))
+    #     if not message_id == MessageID.INIT:
+    #         self.TCP_out_queue.put((guid, message_id, message))
 
-    def get_send_message(self):
-        if self.TCP_out_queue.qsize() > 0: 
-            return self.TCP_out_queue.get(block=False)
-        else:
-            return None
+    # def get_send_message(self):
+    #     if self.TCP_out_queue.qsize() > 0: 
+    #         return self.TCP_out_queue.get(block=False)
+    #     else:
+    #         return None
         
     def put_ui_action(self, action_type, peer_guid, peer_username, peer_address, message_content):
-        self.TCP_in_queue.put((action_type, peer_guid, peer_username, peer_address, message_content))
+        self.UI_queue.put((action_type, peer_guid, peer_username, peer_address, message_content))
     
     def get_ui_action(self):
-        if self.TCP_in_queue.qsize() > 0:
-            popped = self.TCP_in_queue.get(block=False) # popped = (action_type, peer_guid, peer_username, peer_address, message_content)
+        if self.UI_queue.qsize() > 0:
+            popped = self.UI_queue.get(block=False) # popped = (action_type, peer_guid, peer_username, peer_address, message_content)
             action_type, peer_guid, peer_username, peer_address, message_content = popped
 
             if action_type == Actions.MY_MESSAGE:

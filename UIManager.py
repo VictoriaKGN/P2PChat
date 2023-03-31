@@ -104,22 +104,22 @@ class UIManager(threading.Thread):
 
         if len(send_to_index) > 0: # selection
             send_to_index = send_to_index[0]
-            guid = self.mediator.get_index_guid(send_to_index)
-            if self.mediator.is_online(guid): # if online
-                if self.is_peer_connected(guid): # if connected
-                    self.mediator.send_message(guid, message, False)
+            peer_guid = self.mediator.get_index_guid(send_to_index)
+            if self.mediator.is_online(peer_guid): # if online
+                if self.is_peer_connected(peer_guid): # if connected
+                    self.mediator.put_tcp_action(Actions.MY_MESSAGE, MessageID.PERSONAL, peer_guid, message)
                 else: # if not connected
-                    self.mediator.send_broadcast(guid, MessageID.START, message)
+                    self.mediator.put_udp_action(peer_guid, MessageID.START, message)
             else: # if offline
                 self.chathistory_text.config(state="normal")
                 self.chathistory_text.insert(tkinter.END, "\n**** MESSAGE NOT SENT: PEER NOT ONLINE ****", "right") 
                 self.chathistory_text.config(state="disabled")
         else: # no selection
-            guid = self.peername_label.cget("text")
-            if self.mediator.is_online(guid) and self.mediator.is_peer_connected(guid): # if connected
-                self.mediator.send_message(guid, message, False)
-            else: # if online
-                self.mediator.send_broadcast(guid, MessageID.START, message)
+            peer_guid = self.peername_label.cget("text")
+            if self.mediator.is_online(peer_guid) and self.mediator.is_peer_connected(peer_guid): # if connected
+                self.mediator.put_tcp_action(Actions.MY_MESSAGE, peer_guid, MessageID.PERSONAL, message)
+            else: # if online only
+                self.mediator.put_udp_action(peer_guid, MessageID.START, message)
 
     def new_selection(self, index):
         self.mediator.set_curr_index(index)
