@@ -68,7 +68,7 @@ class UIManager(threading.Thread):
         if result is not None:
             self.update_recents_list(result[3])
             if result[3] == 0:
-                self.update_right_frame(result[3], result[1], result[2])
+                self.update_right_frame(result[3])
 
         self.win.after(100, self.catch_new_messages)
 
@@ -89,8 +89,10 @@ class UIManager(threading.Thread):
             self.recents_listbox.insert(tkinter.END, row[1])
         self.recents_listbox.select_set(curr_index)
 
-    def update_right_frame(self, index, peer_guid, peer_username):
+    def update_right_frame(self, index):
         self.placeholder_frame.pack(side="top", pady=5)
+        peer_guid = self.mediator.get_index_guid(index)
+        peer_username = self.recents_listbox.get(index)
         self.peername_label.config(text=peer_username)
         is_online = self.mediator.is_online(peer_guid)
         if is_online is True:
@@ -106,8 +108,8 @@ class UIManager(threading.Thread):
             send_to_index = send_to_index[0]
             peer_guid = self.mediator.get_index_guid(send_to_index)
             if self.mediator.is_online(peer_guid): # if online
-                if self.is_peer_connected(peer_guid): # if connected
-                    self.mediator.put_tcp_action(Actions.MY_MESSAGE, MessageID.PERSONAL, peer_guid, message)
+                if self.mediator.is_peer_connected(peer_guid): # if connected
+                    self.mediator.put_tcp_action(Actions.MY_MESSAGE, peer_guid, self.mediator.get_online_username(peer_guid), MessageID.PERSONAL, message)
                 else: # if not connected
                     self.mediator.put_udp_action(peer_guid, MessageID.START, message)
             else: # if offline
@@ -117,14 +119,13 @@ class UIManager(threading.Thread):
         else: # no selection
             peer_guid = self.peername_label.cget("text")
             if self.mediator.is_online(peer_guid) and self.mediator.is_peer_connected(peer_guid): # if connected
-                self.mediator.put_tcp_action(Actions.MY_MESSAGE, peer_guid, MessageID.PERSONAL, message)
+                self.mediator.put_tcp_action(Actions.MY_MESSAGE, peer_guid, self.mediator.get_online_username(peer_guid), MessageID.PERSONAL, message)
             else: # if online only
                 self.mediator.put_udp_action(peer_guid, MessageID.START, message)
 
     def new_selection(self, index):
         self.mediator.set_curr_index(index)
         self.update_right_frame(index)
-        self.mediator.set_draft_guid(None)
 
     def update_chat_history(self, peer_guid):
         self.chathistory_text.config(state="normal")
@@ -132,9 +133,9 @@ class UIManager(threading.Thread):
         chat_history = self.mediator.get_peer_history(peer_guid)
         for row in chat_history:
             if row[0] is str(peer_guid): # their message
-                self.chathistory_text.insert(tkinter.END, "\n" + row[1])
+                self.chathistory_text.insert(tkinter.END, "\n" + str(row[1]))
             else: # my message
-                self.chathistory_text.insert(tkinter.END, "\n" + row[1], "right")
+                self.chathistory_text.insert(tkinter.END, "\n" + str(row[1]), "right")
         self.chathistory_text.config(state="disabled")
 
     def show_online_list(self):

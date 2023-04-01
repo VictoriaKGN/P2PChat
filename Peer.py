@@ -75,6 +75,9 @@ class Peer:
         self.online_peers[guid] = [addr, username]
         print(f"Online Peers: {self.online_peers}")
 
+    def get_online_username(self, guid):
+        return self.online_peers[guid][2]
+
     def remove_online_peer(self, guid):
         del self.online_peers[guid]
         print(f"Online Peers: {self.online_peers}")
@@ -207,8 +210,8 @@ class Peer:
         else:
             return None
 
-    def put_tcp_actions(self, action_type, peer_guid, message_id, message_content):
-        self.TCP_out_queue.put((message_id, peer_guid, message_content))
+    def put_tcp_action(self, action_type, peer_guid, peer_username, message_id, message_content):
+        self.TCP_out_queue.put((message_id, peer_guid, peer_username, message_content))
 
     def get_tcp_action(self):
         if self.TCP_out_queue.qsize() > 0:
