@@ -11,8 +11,18 @@ class DBManager:
 
     def init_guid(self, guid):
         try:
-            self.conn.execute(f"CREATE TABLE AppGuid (Guid TEXT)")
-            self.conn.execute(f"INSERT INTO AppGuid (Guid) VALUES (?)", (guid, ))
+            self.conn.execute(f"CREATE TABLE AppInfo (Guid TEXT, Username TEXT)")
+            self.conn.execute(f"INSERT INTO AppInfo (Guid) VALUES (?)", (guid, ))
+            self.conn.commit()
+            result = True
+        except sqlite3.Error as e:
+            print(e)
+            result = False
+        return result
+    
+    def update_username(self, username):
+        try:
+            self.conn.execute(f"UPDATE AppInfo SET Username = ?", (username, ))
             self.conn.commit()
             result = True
         except sqlite3.Error as e:
@@ -20,11 +30,11 @@ class DBManager:
             result = False
         return result
 
-    def fetch_guid(self):
+    def fetch_app_info(self):
         try:
-            table = self.cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='AppGuid'").fetchone()
+            table = self.cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='AppInfo'").fetchone()
             if table:
-                result = self.cursor.execute(f"SELECT Guid FROM AppGuid").fetchone()[0]
+                result = self.cursor.execute(f"SELECT * FROM AppInfo").fetchone()
             else:
                 result = None
         except sqlite3.Error as e:

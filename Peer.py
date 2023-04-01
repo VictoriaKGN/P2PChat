@@ -20,14 +20,14 @@ BROADCAST_IP = "255.255.255.255"
 
 class Peer:
     my_guid = None
+    my_username = None
     online_peers = {} # dict guid: [addr, username] 
     peers_info = [] # list of (Guid, Username, Address, LastChat)
     waiting_messages = {} # dict guid: message
     connected_peers = [] # list of guids
+    curr_index = None
     
     db_lock = threading.Lock()
-
-    curr_index = None
 
     def __init__(self):
         self.TCP_out_queue = queue.Queue()
@@ -35,7 +35,7 @@ class Peer:
         self.UDP_out_queue = queue.Queue()
 
         self.db_manager = DBManager()
-        self.init_guid()
+        self.init_app_info()
         self.init_peers_info()
 
         gui_thread = UIManager(self)
@@ -55,6 +55,9 @@ class Peer:
     def get_my_guid(self):
         return self.my_guid
     
+    def get_my_username(self):
+        return self.my_username
+    
     def get_peer_history(self, peer_guid):
         table = self.db_manager.fetch_peer_table(str(peer_guid))
         return table
@@ -73,6 +76,7 @@ class Peer:
     
     def add_online_peer(self, guid, username, addr):
         self.online_peers[guid] = [addr, username]
+        self.put_ui_action(Actions.OFFLINE, guid, None, None, None)
         print(f"Online Peers: {self.online_peers}")
 
     def get_online_username(self, guid):
@@ -80,6 +84,7 @@ class Peer:
 
     def remove_online_peer(self, guid):
         del self.online_peers[guid]
+        self.put_ui_action(Actions.OFFLINE, guid, None, None, None)
         print(f"Online Peers: {self.online_peers}")
 
     def get_waiting_message(self, guid):
@@ -97,76 +102,6 @@ class Peer:
         return guid in self.connected_peers
 
     ########################### Shared Queues Functions ###########################
-        
-    # def receive_message(self, is_me, sender_guid, sender_username, address, message):
-    #     self.UI_queue.put((is_me, sender_guid, sender_username, address, message))
-        
-    # def get_receive_message(self):
-    #     if self.UI_queue.qsize() > 0:
-    #         # TODO update chat history
-    #         popped = self.UI_queue.get(block=False)
-
-    #         if popped[0] is not True:
-    #             self.write_to_db(popped[1], popped[1], popped[4])
-
-    #         if self.curr_index is None:
-    #             if popped[0] is True:
-    #                 self.curr_index = 0
-    #             else:
-    #                 self.curr_index = None
-    #             updated = self.db_manager.update_peer_info(str(popped[1]), popped[2], f"{popped[3][0]}:{str(popped[3][1])}", datetime.now())
-    #             if updated is True:
-    #                 fetched = self.db_manager.fetch_peers_info()
-    #                 if fetched is not False:
-    #                     self.peers_info = fetched
-    #                     print(f"Peers info: {self.peers_info}")
-    #         else:
-    #             curr_guid = self.peers_info[self.curr_index][1]
-    #             updated = self.db_manager.update_peer_info(str(popped[1]), popped[2], popped[3], datetime.now())
-    #             if updated is True:
-    #                 fetched = self.db_manager.fetch_peers_info()
-    #                 if fetched is not False:
-    #                     self.peers_info = fetched
-    #                     if curr_guid is self.peers_info[1][0]: # incoming message from selected peer
-    #                         self.curr_index = 0
-    #                     else: # incoming message from non-selected peer
-    #                         self.curr_index += 1
-    #                 else:
-    #                     # TODO deal with it
-    #                     pass
-    #             else:
-    #                 # TODO deal with it
-    #                 pass
-    #         return (popped[1], self.curr_index)
-    #     else:
-    #         return None
-        
-    # def send_message(self, guid, message, is_first, username=None, addr=None, message_id=MessageID.PERSONAL):
-    #     print(f"Checking if {guid} is online: {guid in self.online_peers}")
-    #     if guid in self.online_peers:
-    #         self.write_to_db(guid, str(self.my_guid), message) # TODO check if its init
-    #         self.curr_index = 0
-
-    #         if is_first is not True:
-    #             updated = self.db_manager.update_peer_lastchat(guid, datetime.now())
-    #         else:
-    #             updated = self.db_manager.update_peer_info(guid, username, f"{addr[0]}:{str(addr[1])}", datetime.now())
-
-    #         if updated is True:
-    #             fetched = self.db_manager.fetch_peers_info()
-    #             if fetched is not False:
-    #                 self.peers_info = fetched
-    #                 print(self.peers_info)
-    #         self.TCP_out_queue.put((guid, message_id, message))
-
-    #     if not message_id == MessageID.INIT:
-    #         self.TCP_out_queue.put((guid, message_id, message))
-
-    # def get_send_message(self):
-    #     if self.TCP_out_queue.qsize() > 0: 
-    #         return self.TCP_out_queue.get(block=False)
-    #     else:
-    #         return None
         
     def put_ui_action(self, action_type, peer_guid, peer_username, peer_address, message_content):
         self.UI_queue.put((action_type, peer_guid, peer_username, peer_address, message_content))
@@ -211,6 +146,7 @@ class Peer:
                 else:
                     if self.curr_index is not None: 
                         self.curr_index += 1
+
             return (action_type, peer_guid, peer_username, self.curr_index)
         else:
             return None
@@ -249,59 +185,40 @@ class Peer:
         else:
             pass # TODO deal with it 
 
-    def init_guid(self):
-        guid = self.db_manager.fetch_guid()
+    def init_app_info(self):
+        result = self.db_manager.fetch_app_info()
 
-        if guid is False:
+        if result is False:
             pass # TODO there was an error, deal with it
-        elif guid is not None:
+        elif result is not None:
+            guid, username = result
             self.my_guid = uuid.UUID(guid)
+            self.my_username = username
         else:
             new_guid = uuid.uuid4()
             result = self.db_manager.init_guid(str(new_guid))
             if result is True:
                 self.my_guid = new_guid
+                self.put_ui_action(Actions.USERNAME, None, None, None, None)
             else:
                 # TODO deal with this
                 pass
+
+    def update_username(self, username):
+        result = self.db_manager.update_username(username)
+        if result is True:
+            self.my_username = username
+        else:
+            pass # TODO deal with it
     
     def write_to_db(self, table_name, sender_id, message):
         result = self.db_manager.write_peer_message(table_name, sender_id, message)
         if result is not True:
             pass # TODO do something
-    
-
-
-    
-    
-        
-   
-    # def send_message(self, direct_queue):
-    #     index = self.friends_listbox.curselection()[0]
-    #     guid = self.friends_listbox.itemcget(index, "value")
-    #     print(guid)
-        
-    # TODO base case of empty list
-    def update_recent_list(self):
-        index = self.friends_listbox.curselection()
-        selected_guid = self.recent_chats[index]
-        self.friends_listbox.delete("1.0", tkinter.END)
-        
-        for username in self.recent_chats:
-            self.friends_listbox.insert(tkinter.END, username)
-        index = self.recent_chats.index(selected_guid)
-        
-        self.friends_listbox.select_set(index)
-        self.switch_chat_history(self.recent_chats[index])
-        
-    def fetch_history(self):
-        # TODO fetch all rows of the table
-        pass
 
     def close_window(self):
         self.put_udp_action("255.255.255.255", MessageID.OFFLINE, None)
-        # broadcast_queue.put((BROADCAST_IP, MessageID.OFFLINE, None))
-        time.sleep(2)
+        time.sleep(0.5)
         os._exit(1)
 
 

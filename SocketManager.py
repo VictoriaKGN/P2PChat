@@ -116,7 +116,7 @@ class SocketManager:
             if result is not None:
                 message_id, peer_guid, peer_username, message_content = result
                 sock = list(self.peer_sockets.keys())[list(self.peer_sockets.values()).index(peer_guid)]
-                message = Message(message_id, str(self.mediator.get_my_guid()), "vickyko", message_content)
+                message = Message(message_id, str(self.mediator.get_my_guid()), self.mediator.get_my_username(), message_content)
                 message_dict = vars(message)
                 message_json = json.dumps(message_dict)
                 print(f"Sending {message_id} message: {message_dict}")
@@ -175,7 +175,7 @@ class SocketManager:
                 else:
                     message_content = result[2] 
 
-                message = Message(result[1], str(self.mediator.get_my_guid()), "vickyko", message_content)
+                message = Message(result[1], str(self.mediator.get_my_guid()), self.mediator.get_my_username(), message_content)
                 message_dict = vars(message)
                 message_json = json.dumps(message_dict)
                 udp_socket.sendto(message_json.encode(), (result[0], UDP_PORT))

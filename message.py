@@ -21,3 +21,6 @@ class Actions(IntEnum):
     REFRESH = 4
     INIT = 5
     PERSONAL = 6
+    OFFLINE = 7
+    ONLINE = 8
+    USERNAME = 9
