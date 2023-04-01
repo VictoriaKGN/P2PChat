@@ -44,7 +44,8 @@ class UIManager(threading.Thread):
 
         self.chathistory_text = tkinter.Text(self.placeholder_frame, width=110, height=41, bg="#323338", fg="#FFFFFF", borderwidth=0, highlightthickness=0)
         self.chathistory_text.pack(side="top", padx=10, pady=5)
-        self.chathistory_text.tag_config("right", justify="right")
+        self.chathistory_text.tag_configure("right", justify="right")
+        self.chathistory_text.tag_configure("left", justify="left")
 
         input_frame = tkinter.Frame(self.placeholder_frame, bg="#323338", width=540, height=50)
         input_frame.pack(side="bottom", padx=10, pady=6)
@@ -133,8 +134,8 @@ class UIManager(threading.Thread):
         self.chathistory_text.delete("1.0", tkinter.END)
         chat_history = self.mediator.get_peer_history(peer_guid)
         for row in chat_history:
-            if row[0] is str(peer_guid): # their message
-                self.chathistory_text.insert(tkinter.END, "\n" + str(row[1]))
+            if row[0] == str(peer_guid): # their message
+                self.chathistory_text.insert(tkinter.END, "\n" + str(row[1]), "left")
             else: # my message
                 self.chathistory_text.insert(tkinter.END, "\n" + str(row[1]), "right")
         self.chathistory_text.config(state="disabled")

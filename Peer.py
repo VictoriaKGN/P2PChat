@@ -76,7 +76,7 @@ class Peer:
         print(f"Online Peers: {self.online_peers}")
 
     def get_online_username(self, guid):
-        return self.online_peers[guid][2]
+        return self.online_peers[guid][1]
 
     def remove_online_peer(self, guid):
         del self.online_peers[guid]
@@ -190,7 +190,7 @@ class Peer:
                 self.curr_index = 0
             elif action_type == Actions.PEER_MESSAGE:
                 if self.curr_index is not None:
-                    curr_guid = self.peers_info[self.curr_index][1]
+                    curr_guid = self.peers_info[self.curr_index][0]
                 else: 
                     curr_guid = None
 
@@ -205,7 +205,8 @@ class Peer:
                 else:
                     print("Did not update peers info")
                 
-                if curr_guid is self.peers_info[0][0]:
+                if curr_guid == self.peers_info[0][0]:
+                    print("Im first guid")
                     self.curr_index = 0
                 else:
                     if self.curr_index is not None: 
