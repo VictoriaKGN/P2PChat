@@ -43,6 +43,7 @@ class SocketManager:
     def open_tcp(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.setblocking(False)
         sock.bind(("", TCP_PORT))
         sock.listen()
         return sock
@@ -57,8 +58,7 @@ class SocketManager:
                 readable, writable, exceptional = select.select(
                     inputs + waiting + list(self.peer_sockets.keys()),
                     outputs,
-                    inputs + waiting + list(self.peer_sockets.keys()))
-                print("Got something")
+                    inputs + waiting + list(self.peer_sockets.keys()), 1)
                 for sock in readable:
                     if sock is tcp_socket:     # new chat, someone binded successfully
                         conn, addr = tcp_socket.accept()
@@ -114,15 +114,16 @@ class SocketManager:
         while True:
             result = self.mediator.get_tcp_action()
             if result is not None:
-                sock = list(self.peer_sockets.keys())[list(self.peer_sockets.values()).index(result[1])]
-                message = Message(result[0], str(self.mediator.get_my_guid()), "vickyko", result[3])
+                message_id, peer_guid, peer_username, message_content = result
+                sock = list(self.peer_sockets.keys())[list(self.peer_sockets.values()).index(peer_guid)]
+                message = Message(message_id, str(self.mediator.get_my_guid()), "vickyko", message_content)
                 message_dict = vars(message)
                 message_json = json.dumps(message_dict)
-                print(f"Sending {result[0]} message: {message_dict}")
+                print(f"Sending {message_id} message: {message_dict}")
                 try:
                     sock.sendall(message_json.encode())
-                    if not result[0] == MessageID.INIT:
-                        self.mediator.put_ui_action(Actions.MY_MESSAGE, result[1], result[2], sock.getsockname(), result[3])
+                    if not message_id == MessageID.INIT:
+                        self.mediator.put_ui_action(Actions.MY_MESSAGE, peer_guid, peer_username, sock.getsockname(), message_content)
                         print(f"Putting {result[1]} in UI action in send TCP") 
                 except Exception as e:
                     print(f"Exception when sending TCP: {e}")

@@ -184,12 +184,16 @@ class Peer:
                     if fetched is not False:
                         self.peers_info = fetched
                     else:
-                        pass # TODO deal with it
+                        print("Couldnt fetch peers info table") # TODO deal with it
                 else:
-                    pass # TODO deal with it
+                    print("Did not update peers info") # TODO deal with it
                 self.curr_index = 0
             elif action_type == Actions.PEER_MESSAGE:
-                curr_guid = self.peers_info[self.curr_index][1]
+                if self.curr_index is not None:
+                    curr_guid = self.peers_info[self.curr_index][1]
+                else: 
+                    curr_guid = None
+
                 self.write_to_db(peer_guid, peer_guid, message_content)
                 updated = self.db_manager.update_peer_info(peer_guid, peer_username, f"{peer_address[0]}:{str(peer_address[1])}", datetime.now())
                 if updated is True:
@@ -197,11 +201,11 @@ class Peer:
                     if fetched is not False:
                         self.peers_info = fetched
                     else:
-                        pass # TODO deal with it
+                        print("Couldnt fetch peers info table")
                 else:
-                    pass # TODO deal with it
+                    print("Did not update peers info")
                 
-                if curr_guid is self.peers_info[1][0]:
+                if curr_guid is self.peers_info[0][0]:
                     self.curr_index = 0
                 else:
                     if self.curr_index is not None: 

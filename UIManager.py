@@ -60,8 +60,7 @@ class UIManager(threading.Thread):
         self.init_recents()
 
         self.win.after(100, self.catch_new_messages)
-        self.win.mainloop()
-            
+        self.win.mainloop()     
             
     def catch_new_messages(self):
         result = self.mediator.get_ui_action() # result = (action_type, peer_guid, peer_username, curr_index)
@@ -87,7 +86,9 @@ class UIManager(threading.Thread):
         recent_list = self.mediator.get_peers_info()
         for row in recent_list:
             self.recents_listbox.insert(tkinter.END, row[1])
-        self.recents_listbox.select_set(curr_index)
+        
+        if curr_index is not None:
+            self.recents_listbox.select_set(curr_index)
 
     def update_right_frame(self, index):
         self.placeholder_frame.pack(side="top", pady=5)
