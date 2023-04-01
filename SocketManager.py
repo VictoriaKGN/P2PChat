@@ -58,7 +58,7 @@ class SocketManager:
                     inputs + waiting + list(self.peer_sockets.keys()),
                     outputs,
                     inputs + waiting + list(self.peer_sockets.keys()))
-                
+                print("Got something")
                 for sock in readable:
                     if sock is tcp_socket:     # new chat, someone binded successfully
                         conn, addr = tcp_socket.accept()
@@ -70,6 +70,7 @@ class SocketManager:
                         if data:
                             message_dict = json.loads(data.decode())
                             message = Message(**message_dict)
+                            print("Got message in peer sockets")
                             if message.messageID == MessageID.PERSONAL:
                                 print(f"Received a personal message: {message_dict}")
                                 self.mediator.put_ui_action(Actions.PEER_MESSAGE, message.senderGUID, message.senderUsername, sock.getsockname(), message.message)
@@ -87,7 +88,7 @@ class SocketManager:
                             message = Message(**message_dict)
                             if message.messageID == MessageID.INIT:
                                 print("Im in init")
-                                waiting.remove(sock)
+                                
                                 print("Removed from waiting")
                                 self.peer_sockets[sock] = message.senderGUID
                                 self.mediator.add_connected_peer(message.senderGUID)
@@ -95,8 +96,11 @@ class SocketManager:
                                 message_to_send = self.mediator.get_waiting_message(message.senderGUID)
                                 print(f"Got waiting message: {message_to_send}")
                                 if message_to_send is not None:
-                                    self.mediator.put_tcp_action(Actions.MY_MESSAGE, message.senderGUID, MessageID.PERSONAL, message_to_send) 
-                                    print(f"Putting {message.senderGUID} in TCP action in INIT recv TCP")                                   
+                                    self.mediator.put_tcp_action(Actions.MY_MESSAGE, message.senderGUID, message.senderUsername, MessageID.PERSONAL, message_to_send) 
+                                    print(f"Putting {message.senderGUID} in TCP action in INIT recv TCP")
+                                waiting.remove(sock) 
+                    else:
+                        print("Im in else")                         
                 for sock in exceptional:
                     self.mediator.remove_online_peer(self.peer_sockets[sock])
                     self.mediator.remove_connected_peer(self.peer_sockets[sock])
@@ -122,7 +126,7 @@ class SocketManager:
                         print(f"Putting {result[1]} in UI action in send TCP") 
                 except Exception as e:
                     print(f"Exception when sending TCP: {e}")
-            time.sleep(0.2)
+            time.sleep(0.1)
     
     def recv_udp(self, udp_socket):
         while True:
@@ -147,7 +151,9 @@ class SocketManager:
                         try:
                             sock.connect((addr[0], int(message.message)))
                             self.peer_sockets[sock] = message.senderGUID
-                            self.mediator.put_tcp_action(Actions.INIT, message.senderGUID, MessageID.INIT, None)
+                            self.mediator.add_connected_peer(message.senderGUID)
+                            self.mediator.add_online_peer(message.senderGUID, message.senderUsername, sock.getsockname())
+                            self.mediator.put_tcp_action(Actions.INIT, message.senderGUID, message.senderUsername, MessageID.INIT, None)
                             print(f"Putting {message.senderGUID} in TCP action in recv UDP")   
                         except Exception as e:
                             print(f"Exception connection to peer: {e}")
