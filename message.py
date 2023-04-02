@@ -20,3 +20,4 @@ class Actions(IntEnum):
     OFFLINE = 3
     ONLINE = 4
     USERNAME = 5
+    INIT = 6

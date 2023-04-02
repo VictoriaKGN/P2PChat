@@ -4,8 +4,6 @@ from UIManager import UIManager
 from SocketManager import SocketManager
 import threading
 import queue
-import os
-import time
 import uuid
 from datetime import datetime
 import rsa
@@ -83,15 +81,14 @@ class Peer:
     def add_online_peer(self, guid, username, addr):
         self.online_peers[guid] = [addr, username]
         self.put_ui_action(Actions.ONLINE, guid, None, None, None)
-        print(f"Online Peers: {self.online_peers}")
 
     def get_online_username(self, guid):
         return self.online_peers[guid][1]
 
     def remove_online_peer(self, guid):
-        del self.online_peers[guid]
+        if guid in self.online_peers:
+            del self.online_peers[guid]
         self.put_ui_action(Actions.OFFLINE, guid, None, None, None)
-        print(f"Online Peers: {self.online_peers}")
 
     def get_waiting_message(self, guid):
         message = self.waiting_messages[guid]
@@ -102,7 +99,8 @@ class Peer:
         self.connected_peers.append(guid)
 
     def remove_connected_peer(self, guid):
-        self.connected_peers.remove(guid)
+        if guid in self.connected_peers:
+            self.connected_peers.remove(guid)
 
     def is_peer_connected(self, guid):
         return guid in self.connected_peers
@@ -138,8 +136,10 @@ class Peer:
                         curr_guid = self.peers_info[self.curr_index][0]
                     else: 
                         curr_guid = None
-
-                self.write_to_db(peer_guid, str(self.my_guid), message_content)
+                    self.write_to_db(peer_guid, peer_guid, message_content)
+                else:
+                    self.write_to_db(peer_guid, str(self.my_guid), message_content)
+                
                 updated = self.db_manager.update_peer_info(peer_guid, peer_username, f"{peer_address[0]}:{str(peer_address[1])}", datetime.now())
                 if updated is True:
                     fetched = self.db_manager.fetch_peers_info()
@@ -227,9 +227,7 @@ class Peer:
             print("Couldn't add message to peer table in DB")
 
     def close_window(self):
-        self.put_udp_action(MessageID.OFFLINE, None, None, "255.255.255.255")
-        time.sleep(0.5)
-        os._exit(1)
-
+        print("Disconnecting")
+        self.put_udp_action(MessageID.OFFLINE, None, None, "255.255.255.255")     
 
 peer = Peer()

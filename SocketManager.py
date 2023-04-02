@@ -5,6 +5,7 @@ import json
 import time
 import threading
 import rsa
+import os
 from base64 import b64encode, b64decode
 
 TCP_PORT = 8002
@@ -78,7 +79,7 @@ class SocketManager:
                                 print(f"Received a personal message: {message_dict}")
                                 self.mediator.put_ui_action(Actions.PEER_MESSAGE, message.senderGUID, message.senderUsername, sock.getpeername(), message.message)
                         else:
-                            print("Someone is disconnecting")
+                            print("Someone from peers is disconnecting")
                             self.mediator.remove_connected_peer(self.peer_sockets[sock])
                             self.mediator.remove_online_peer(self.peer_sockets[sock])
                             del self.peer_sockets[sock]
@@ -99,23 +100,25 @@ class SocketManager:
                                     self.mediator.put_tcp_action(Actions.MY_MESSAGE, message.senderGUID, message.senderUsername, MessageID.PERSONAL, message_to_send) 
                                 waiting.remove(sock) 
                         else:
-                            print("Someone is disconnecting")
-                            self.mediator.remove_connected_peer(self.peer_sockets[sock])
+                            print("Someone from waiting is disconnecting")
                             self.mediator.remove_online_peer(self.peer_sockets[sock])
-                            del self.peer_sockets[sock]
+                            waiting.remove(sock)
                             sock.close()                     
                 for sock in exceptional:
-                    self.mediator.remove_online_peer(self.peer_sockets[sock])
-                    self.mediator.remove_connected_peer(self.peer_sockets[sock])
-                    del self.peer_sockets[sock] 
-                    sock.close()
+                    print("Exceptional socket")
+                    if sock in self.peer_sockets:
+                        self.mediator.remove_online_peer(self.peer_sockets[sock])
+                        self.mediator.remove_connected_peer(self.peer_sockets[sock])
+                        del self.peer_sockets[sock]
+                        sock.close()
 
             except socket.error as socket_error:
                 print(F"Socket error: {socket_error}")
-                self.mediator.remove_connected_peer(self.peer_sockets[sock])
-                self.mediator.remove_online_peer(self.peer_sockets[sock])
-                del self.peer_sockets[sock]
-                sock.close()
+                if sock in self.peer_sockets:
+                    self.mediator.remove_connected_peer(self.peer_sockets[sock])
+                    self.mediator.remove_online_peer(self.peer_sockets[sock])
+                    del self.peer_sockets[sock]
+                    sock.close()
             except Exception as e:
                 print(f"Error receiving TCP: {e}")
                 
@@ -151,10 +154,11 @@ class SocketManager:
                     if message.messageID == MessageID.ONLINE:
                         print(f"{message.senderUsername} is online")
                         self.mediator.add_online_peer(message.senderGUID, message.senderUsername, addr)
-                        if not message.message:
+                        if message.message is None:
                             self.mediator.put_udp_action(MessageID.ONLINE, message.senderGUID, "ACK", addr[0])
                     elif message.messageID == MessageID.OFFLINE:
                         self.mediator.remove_online_peer(message.senderGUID)
+                        self.mediator.remove_connected_peer(message.senderGUID)
                     elif message.messageID == MessageID.START: # someone wants to start TCP, connect to them using TCP socket
                         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                         sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
@@ -176,10 +180,7 @@ class SocketManager:
             result = self.mediator.get_udp_action()
             if result is not None:
                 message_id, to_send_guid, message, ip_addr = result
-                if message_id == MessageID.OFFLINE:
-                    self.disconnect_tcp_sockets()
-                    message_content = message
-                elif message_id == MessageID.START:
+                if message_id == MessageID.START:
                     public_key = self.mediator.generate_keys(to_send_guid)
                     message_content = self.public_rsa_to_string(public_key)
                 else:
@@ -191,13 +192,18 @@ class SocketManager:
 
                 try:
                     udp_socket.sendto(message_json.encode(), (ip_addr, UDP_PORT))
+                    if message.messageID == MessageID.OFFLINE:
+                        self.disconnect_tcp_sockets()
+                        time.sleep(2)
+                        os._exit(1)
                 except Exception as e:
                     print(f"Error sending UDP: {e}")
             time.sleep(0.2)
 
     def disconnect_tcp_sockets(self):
         for sock in self.peer_sockets.keys():
-            sock.close()
+            sock.close() 
+        self.peer_sockets.clear()
 
     def string_to_public_rsa(self, key_str):
         return rsa.PublicKey.load_pkcs1(b64decode(key_str.encode()))
