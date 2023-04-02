@@ -142,7 +142,7 @@ class SocketManager:
                         print(f"{message.senderUsername} is online")
                         self.mediator.add_online_peer(message.senderGUID, message.senderUsername, addr)
                         if not message.message:
-                            self.mediator.put_udp_action(MessageID.ONLINE, message.senderGUID, "ACK")
+                            self.mediator.put_udp_action(MessageID.ONLINE, message.senderGUID, "ACK", addr[0])
                     elif message.messageID == MessageID.OFFLINE:
                         self.mediator.remove_online_peer(message.senderGUID)
                     elif message.messageID == MessageID.START: # someone wants to start TCP, connect to them using TCP socket
@@ -167,15 +167,15 @@ class SocketManager:
             result = self.mediator.get_udp_action()
             if result is not None:
                 message_id, to_send_guid, message, ip_addr = result
-                if message == MessageID.OFFLINE:
+                if message_id == MessageID.OFFLINE:
                     self.disconnect_tcp_sockets()
-                elif result[1] == MessageID.START:
-                    public_key = self.mediator.generate_keys()
+                elif message_id == MessageID.START:
+                    public_key = self.mediator.generate_keys(to_send_guid)
                     message_content = public_key.save_pkcs1("PEM")
                 else:
                     message_content = message
 
-                message = Message(result[1], str(self.mediator.get_my_guid()), self.mediator.get_my_username(), message_content)
+                message = Message(message_id, str(self.mediator.get_my_guid()), self.mediator.get_my_username(), message_content)
                 message_dict = vars(message)
                 message_json = json.dumps(message_dict)
                 udp_socket.sendto(message_json.encode(), (ip_addr, UDP_PORT))

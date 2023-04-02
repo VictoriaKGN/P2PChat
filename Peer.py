@@ -174,10 +174,11 @@ class Peer:
         
     def put_udp_action(self, message_id, to_send_guid, message, ip_addr=None):
         if ip_addr is not None:
-            self.UDP_out_queue.put((to_send_guid, message_id, message, ip_addr))
+            self.UDP_out_queue.put((message_id, to_send_guid, message, ip_addr))
         elif message_id == MessageID.START:
             self.waiting_messages[to_send_guid] = message
-            self.UDP_out_queue.put((to_send_guid, message_id, self.online_peers[to_send_guid][0][0]))
+            self.UDP_out_queue.put((message_id, to_send_guid, message, self.online_peers[to_send_guid][0][0]))
+        
 
     def get_udp_action(self):
         if self.UDP_out_queue.qsize() > 0:
