@@ -111,7 +111,15 @@ class Peer:
         return public_key
     
     def update_peer_public(self, guid, key):
-        self.keys[guid][1] = key
+        self.keys[guid] = (self.keys[guid][0], key)
+
+    def get_peer_public_key(self, guid):
+        return self.keys[guid][1]
+    
+    def get_my_private_key(self, addr):
+        guid = self.db_manager.get_guid_from_addr(f"{addr[0]}:{addr[1]}")
+        if guid is not None and guid is not False:
+            return self.keys[guid][0]
 
     ########################### Shared Queues Functions ###########################
         
@@ -156,7 +164,7 @@ class Peer:
                     print("Im first guid")
                     self.curr_index = 0
                 else:
-                    if self.curr_index is not None or not curr_guid == self.peers_info[self.curr_index][0]: 
+                    if self.curr_index is not None and not curr_guid == self.peers_info[self.curr_index][0]: 
                         self.curr_index += 1
 
             return (action_type, peer_guid, peer_username, self.curr_index)

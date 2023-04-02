@@ -70,7 +70,8 @@ class SocketManager:
                     elif sock in self.peer_sockets:
                         data = sock.recv(2048)
                         if data:
-                            message_dict = json.loads(data.decode())
+                            decrypted_data = rsa.decrypt(data, self.mediator.get_my_private_key(sock.getsockname())).decode()
+                            message_dict = json.loads(decrypted_data.decode())
                             message = Message(**message_dict)
                             print("Got message in peer sockets")
                             if message.messageID == MessageID.PERSONAL:
@@ -86,7 +87,8 @@ class SocketManager:
                         data = sock.recv(2048)
                         if data:
                             print("Received init message")
-                            message_dict = json.loads(data.decode())
+                            decrypted_data = rsa.decrypt(data, self.mediator.get_my_private_key(sock.getsockname())).decode()
+                            message_dict = json.loads(decrypted_data.decode())
                             message = Message(**message_dict)
                             if message.messageID == MessageID.INIT:
                                 print("Im in init")
@@ -121,10 +123,11 @@ class SocketManager:
                 message_json = json.dumps(message_dict)
                 print(f"Sending {message_id} message: {message_dict}")
                 try:
-                    sock.sendall(message_json.encode())
-                    if not message_id == MessageID.INIT:
+                    if message_id == MessageID.INIT:
+                        sock.sendall(message_json.encode())
+                    else:
+                        sock.sendall(rsa.encrypt(message_json.encode(), self.mediator.get_peer_public_key(peer_guid)))
                         self.mediator.put_ui_action(Actions.MY_MESSAGE, peer_guid, peer_username, sock.getsockname(), message_content)
-                        print(f"Putting {result[1]} in UI action in send TCP") 
                 except Exception as e:
                     print(f"Exception when sending TCP: {e}")
             time.sleep(0.1)
@@ -187,7 +190,8 @@ class SocketManager:
             sock.close()
 
     def string_to_public_rsa(self, key_str):
-        return rsa.PublicKey.load_pkcs1_openssl_pem(key_str.encode())
+        # return rsa.PublicKey.load_pkcs1(key_str.encode())
+        return rsa.PublicKey.load_pkcs1(b64decode(key_str.encode()))
     
     def public_rsa_to_string(self, key):
-        return key.save_pkcs1_openssl_pem().decode()
+        return b64encode(key.save_pkcs1()).decode()

@@ -41,6 +41,18 @@ class DBManager:
             print(e)
             result = False
         return result
+    
+    def get_guid_from_addr(self, addr):
+        try:
+            row = self.cursor.execute(f"SELECT Guid FROM PeersInfo WHERE Address = ?", (addr, )).fetchone()
+            if row:
+                result = row[0]
+            else:
+                result = None
+        except sqlite3.Error as e:
+            print(e)
+            result = False
+        return result
 
     def fetch_peers_info(self):
         print("fetch_peers_info")
