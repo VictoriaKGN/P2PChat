@@ -126,17 +126,17 @@ class UIManager(threading.Thread):
                     if self.mediator.is_peer_connected(peer_guid): # if connected
                         self.mediator.put_tcp_action(Actions.MY_MESSAGE, peer_guid, self.mediator.get_online_username(peer_guid), MessageID.PERSONAL, message)
                     else: # if not connected
-                        self.mediator.put_udp_action(peer_guid, MessageID.START, message)
+                        self.mediator.put_udp_action(MessageID.START, peer_guid, message)
                 else: # if offline
                     self.chathistory_text.config(state="normal")
                     self.chathistory_text.insert(tkinter.END, "\n**** MESSAGE NOT SENT: PEER NOT ONLINE ****", "right") 
                     self.chathistory_text.config(state="disabled")
             else: # no selection
-                peer_guid = self.peername_label.cget("text")
+                peer_guid = self.mediator.get_draft_guid()
                 if self.mediator.is_online(peer_guid) and self.mediator.is_peer_connected(peer_guid): # if connected
                     self.mediator.put_tcp_action(Actions.MY_MESSAGE, peer_guid, self.mediator.get_online_username(peer_guid), MessageID.PERSONAL, message)
                 else: # if online only
-                    self.mediator.put_udp_action(peer_guid, MessageID.START, message)
+                    self.mediator.put_udp_action(MessageID.START, peer_guid, message)
 
     def change_status(self, guid, curr_index):
         if curr_index is not None and self.mediator.get_index_guid(curr_index) == guid:
@@ -176,22 +176,23 @@ class UIManager(threading.Thread):
         listbox = tkinter.Listbox(self.online_popup, exportselection=False, width=400, height=400, bg="#2C2D31", fg="#FFFFFF", borderwidth=0, highlightthickness=0, selectbackground="#414249", activestyle="none")
         listbox.pack()
 
-        online_peers = self.mediator.get_online_list()
-        listbox.insert(tkinter.END, *online_peers)
+        online_usernames = self.mediator.get_online_usernames()
+        listbox.insert(tkinter.END, *online_usernames)
 
-        listbox.bind('<<ListboxSelect>>', lambda event=None: self.new_chat(online_peers[listbox.curselection()[0]]))
+        listbox.bind('<<ListboxSelect>>', lambda event=None: self.new_chat(online_usernames, listbox.curselection()[0]))
 
-    def new_chat(self, guid):
+    def new_chat(self, online_usernames, index):
         self.online_popup.destroy()
         self.placeholder_frame.pack(side="top", pady=5)
         self.recents_listbox.selection_clear(0, tkinter.END)
-        self.peername_label.config(text=guid)
+        self.peername_label.config(text=online_usernames[index])
         self.status_canvas.itemconfig(self.oval_id, fill="Green")
         self.chathistory_text.delete("1.0", tkinter.END)
         self.mediator.set_curr_index(None)
         self.chathistory_text.config(state="normal")
         self.chathistory_text.delete("1.0", tkinter.END)
         self.chathistory_text.config(state="disabled")
+        self.mediator.set_draft_guid(index)
 
     def username_prompt(self):
         self.username_popup = tkinter.Toplevel(self.win)

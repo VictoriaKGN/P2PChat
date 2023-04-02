@@ -2,17 +2,13 @@ from message import *
 from DBManager import DBManager
 from UIManager import UIManager
 from SocketManager import SocketManager
-import socket
 import threading
-import tkinter
-import json
 import queue
 import os
 import time
-import select
-import sys
 import uuid
 from datetime import datetime
+import rsa
 
 TCP_PORT = 8002
 UDP_PORT = 8001
@@ -21,11 +17,13 @@ BROADCAST_IP = "255.255.255.255"
 class Peer:
     my_guid = None
     my_username = None
+    draft_guid = None
+    curr_index = None
     online_peers = {} # dict guid: [addr, username] 
     peers_info = [] # list of (Guid, Username, Address, LastChat)
     waiting_messages = {} # dict guid: message
     connected_peers = [] # list of guids
-    curr_index = None
+    keys = {} # dict guid: [my private, peer public]
     
     db_lock = threading.Lock()
 
@@ -68,15 +66,21 @@ class Peer:
     def get_index_guid(self, index):
         return self.peers_info[index][0]
     
-    def get_online_list(self):
-        return list(self.online_peers.keys())
+    def set_draft_guid(self, index):
+        self.draft_guid = list(self.online_peers.keys())[index]
+
+    def get_draft_guid(self):
+        return self.draft_guid
+    
+    def get_online_usernames(self):
+        return [value[1] for value in self.online_peers.values()]
 
     def get_online_addr(self, guid):
         return self.online_peers[guid]
     
     def add_online_peer(self, guid, username, addr):
         self.online_peers[guid] = [addr, username]
-        self.put_ui_action(Actions.OFFLINE, guid, None, None, None)
+        self.put_ui_action(Actions.ONLINE, guid, None, None, None)
         print(f"Online Peers: {self.online_peers}")
 
     def get_online_username(self, guid):
@@ -100,6 +104,14 @@ class Peer:
 
     def is_peer_connected(self, guid):
         return guid in self.connected_peers
+    
+    def generate_keys(self, guid):
+        public_key, private_key = rsa.newkeys(1024)
+        self.keys[guid][0] = private_key
+        return public_key
+    
+    def update_peer_public(self, guid, key):
+        self.keys[guid][1] = key
 
     ########################### Shared Queues Functions ###########################
         
@@ -144,7 +156,7 @@ class Peer:
                     print("Im first guid")
                     self.curr_index = 0
                 else:
-                    if self.curr_index is not None: 
+                    if self.curr_index is not None or not curr_guid == self.peers_info[self.curr_index][0]: 
                         self.curr_index += 1
 
             return (action_type, peer_guid, peer_username, self.curr_index)
@@ -160,15 +172,12 @@ class Peer:
         else:
             return None
         
-    def put_udp_action(self, to_send_guid, message_id, message):
-        if to_send_guid == "255.255.255.255":
-            self.UDP_out_queue.put((to_send_guid, message_id, message))
-        else:
-            if message_id == MessageID.START:
-                self.waiting_messages[to_send_guid] = message
-                self.UDP_out_queue.put((self.online_peers[to_send_guid][0][0], message_id, None))
-            else:
-                self.UDP_out_queue.put((self.online_peers[to_send_guid][0][0], message_id, message))
+    def put_udp_action(self, message_id, to_send_guid, message, ip_addr=None):
+        if ip_addr is not None:
+            self.UDP_out_queue.put((to_send_guid, message_id, message, ip_addr))
+        elif message_id == MessageID.START:
+            self.waiting_messages[to_send_guid] = message
+            self.UDP_out_queue.put((to_send_guid, message_id, self.online_peers[to_send_guid][0][0]))
 
     def get_udp_action(self):
         if self.UDP_out_queue.qsize() > 0:
@@ -217,7 +226,7 @@ class Peer:
             pass # TODO do something
 
     def close_window(self):
-        self.put_udp_action("255.255.255.255", MessageID.OFFLINE, None)
+        self.put_udp_action(MessageID.OFFLINE, None, None, "255.255.255.255")
         time.sleep(0.5)
         os._exit(1)
 
