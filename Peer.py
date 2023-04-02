@@ -107,7 +107,7 @@ class Peer:
     
     def generate_keys(self, guid):
         public_key, private_key = rsa.newkeys(1024)
-        self.keys[guid][0] = private_key
+        self.keys[guid] = (private_key, None)
         return public_key
     
     def update_peer_public(self, guid, key):

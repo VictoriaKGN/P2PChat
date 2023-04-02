@@ -5,6 +5,7 @@ import json
 import time
 import threading
 import rsa
+from base64 import b64encode, b64decode
 
 TCP_PORT = 8002
 UDP_PORT = 8001
@@ -91,7 +92,7 @@ class SocketManager:
                                 print("Im in init")
                                 self.peer_sockets[sock] = message.senderGUID
                                 self.mediator.add_connected_peer(message.senderGUID)
-                                self.mediator.update_peer_public(message.senderGUID, rsa.PublicKey.load_pkcs1(message.message))
+                                self.mediator.update_peer_public(message.senderGUID, rsa.PublicKey.load_pkcs1(b64decode(message.message)))
                                 message_to_send = self.mediator.get_waiting_message(message.senderGUID)
                                 print(f"Got waiting message: {message_to_send}")
                                 if message_to_send is not None:
@@ -153,9 +154,9 @@ class SocketManager:
                             self.peer_sockets[sock] = message.senderGUID
                             self.mediator.add_connected_peer(message.senderGUID)
                             self.mediator.add_online_peer(message.senderGUID, message.senderUsername, sock.getsockname())
-                            self.mediator.update_peer_public(message.senderGUID, rsa.PublicKey.load_pkcs1(message.message))
                             public_key = self.mediator.generate_keys(message.senderGUID)
-                            self.mediator.put_tcp_action(Actions.INIT, message.senderGUID, message.senderUsername, MessageID.INIT, public_key.save_pkcs1("PEM"))
+                            self.mediator.update_peer_public(message.senderGUID, rsa.PublicKey.load_pkcs1(b64decode(message.message)))
+                            self.mediator.put_tcp_action(Actions.INIT, message.senderGUID, message.senderUsername, MessageID.INIT, b64encode(public_key.save_pkcs1("PEM")))
                             print(f"Putting {message.senderGUID} in TCP action in recv UDP")   
                         except Exception as e:
                             print(f"Exception connection to peer: {e}")
@@ -171,7 +172,7 @@ class SocketManager:
                     self.disconnect_tcp_sockets()
                 elif message_id == MessageID.START:
                     public_key = self.mediator.generate_keys(to_send_guid)
-                    message_content = public_key.save_pkcs1("PEM")
+                    message_content = b64encode(public_key.save_pkcs1("PEM"))
                 else:
                     message_content = message
 
