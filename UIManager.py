@@ -1,6 +1,6 @@
 import threading
 import tkinter
-from message import *
+from Message import *
 
 WIDTH = 1200
 HEIGHT = 750
@@ -35,7 +35,6 @@ class UIManager(threading.Thread):
         right_frame.pack(side="right")
 
         self.placeholder_frame = tkinter.Frame(right_frame, width=int(3*WIDTH/4), height=HEIGHT, bg="#323338")
-        #placeholder_frame.pack(side="top", pady=5)
         self.placeholder_frame.pack_forget()
 
         name_frame = tkinter.Frame(self.placeholder_frame, width=20, height=40, bg="#323338")
@@ -73,16 +72,17 @@ class UIManager(threading.Thread):
         self.win.mainloop()     
             
     def catch_new_messages(self):
-        result = self.mediator.get_ui_action() # result = (action_type, peer_guid, peer_username, curr_index)
+        result = self.mediator.get_ui_action()
         if result is not None:
-            if result[0] == Actions.OFFLINE or result[0] == Actions.ONLINE:
-                self.change_status(result[1], result[3])
-            elif result[0] == Actions.USERNAME:
+            action_type, peer_guid, peer_username, curr_index = result
+            if action_type == Actions.OFFLINE or action_type == Actions.ONLINE:
+                self.change_status(peer_guid, curr_index)
+            elif action_type == Actions.USERNAME:
                 self.username_prompt()
             else:
-                self.update_recents_list(result[3])
-                if result[3] == 0:
-                    self.update_right_frame(result[3])
+                self.update_recents_list(curr_index)
+                if curr_index == 0:
+                    self.update_right_frame(curr_index)
 
         self.win.after(100, self.catch_new_messages)
 

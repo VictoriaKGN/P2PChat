@@ -1,4 +1,4 @@
-from message import *
+from Message import *
 from DBManager import DBManager
 from UIManager import UIManager
 from SocketManager import SocketManager
@@ -41,6 +41,8 @@ class Peer:
         
         self.socket_manager = SocketManager(self)
         
+    ########################### Gets & Sets ###########################
+    
     def set_curr_index(self, new_index):
         self.curr_index = new_index
 
@@ -117,7 +119,7 @@ class Peer:
         return self.keys[guid][1]
     
     def get_my_private_key(self, addr):
-        guid = [key for key, value in self.online_peers.items() if value[0] == addr]
+        guid = [key for key, value in self.online_peers.items() if value[0][0] == addr[0]]
         return self.keys[guid[0]][0]
 
     ########################### Shared Queues Functions ###########################
@@ -127,28 +129,17 @@ class Peer:
     
     def get_ui_action(self):
         if self.UI_queue.qsize() > 0:
-            popped = self.UI_queue.get(block=False) # popped = (action_type, peer_guid, peer_username, peer_address, message_content)
+            popped = self.UI_queue.get(block=False)
             action_type, peer_guid, peer_username, peer_address, message_content = popped
 
-            if action_type == Actions.MY_MESSAGE:
-                self.write_to_db(peer_guid, str(self.my_guid), message_content)
-                updated = self.db_manager.update_peer_info(peer_guid, peer_username, f"{peer_address[0]}:{str(peer_address[1])}", datetime.now())
-                if updated is True:
-                    fetched = self.db_manager.fetch_peers_info()
-                    if fetched is not False:
-                        self.peers_info = fetched
-                    else:
-                        print("Couldnt fetch peers info table") # TODO deal with it
-                else:
-                    print("Did not update peers info") # TODO deal with it
-                self.curr_index = 0
-            elif action_type == Actions.PEER_MESSAGE:
-                if self.curr_index is not None:
-                    curr_guid = self.peers_info[self.curr_index][0]
-                else: 
-                    curr_guid = None
+            if action_type == Actions.MY_MESSAGE or action_type == Actions.PEER_MESSAGE:
+                if action_type == Actions.PEER_MESSAGE:
+                    if self.curr_index is not None:
+                        curr_guid = self.peers_info[self.curr_index][0]
+                    else: 
+                        curr_guid = None
 
-                self.write_to_db(peer_guid, peer_guid, message_content)
+                self.write_to_db(peer_guid, str(self.my_guid), message_content)
                 updated = self.db_manager.update_peer_info(peer_guid, peer_username, f"{peer_address[0]}:{str(peer_address[1])}", datetime.now())
                 if updated is True:
                     fetched = self.db_manager.fetch_peers_info()
@@ -158,13 +149,15 @@ class Peer:
                         print("Couldnt fetch peers info table")
                 else:
                     print("Did not update peers info")
-                
-                if curr_guid == self.peers_info[0][0]:
-                    print("Im first guid")
-                    self.curr_index = 0
+
+                if action_type == Actions.PEER_MESSAGE:
+                    if curr_guid == self.peers_info[0][0]:
+                        self.curr_index = 0
+                    else:
+                        if self.curr_index is not None and not curr_guid == self.peers_info[self.curr_index][0]: 
+                            self.curr_index += 1
                 else:
-                    if self.curr_index is not None and not curr_guid == self.peers_info[self.curr_index][0]: 
-                        self.curr_index += 1
+                    self.curr_index = 0
 
             return (action_type, peer_guid, peer_username, self.curr_index)
         else:
@@ -193,20 +186,20 @@ class Peer:
         else:
             return None
         
-    ########################### Init Variables Functions ###########################
+    ########################### Init and Update Functions ###########################
         
     def init_peers_info(self):
         peers_info = self.db_manager.fetch_peers_info()
         if peers_info is not False:
             self.peers_info = peers_info
         else:
-            pass # TODO deal with it 
+            print("Couldn't init PeersInfo table in DB")
 
     def init_app_info(self):
         result = self.db_manager.fetch_app_info()
 
         if result is False:
-            pass # TODO there was an error, deal with it
+            print("Couldn't fetch AppInfo table in DB")
         elif result is not None:
             guid, username = result
             self.my_guid = uuid.UUID(guid)
@@ -218,20 +211,20 @@ class Peer:
                 self.my_guid = new_guid
                 self.put_ui_action(Actions.USERNAME, None, None, None, None)
             else:
-                # TODO deal with this
-                pass
+                print("Couldn't init AppInfo table and insert Guid in DB")
 
     def update_username(self, username):
         result = self.db_manager.update_username(username)
         if result is True:
             self.my_username = username
         else:
-            pass # TODO deal with it
+            print("Couldn't update my username in DB")
+
     
     def write_to_db(self, table_name, sender_id, message):
         result = self.db_manager.write_peer_message(table_name, sender_id, message)
         if result is not True:
-            pass # TODO do something
+            print("Couldn't add message to peer table in DB")
 
     def close_window(self):
         self.put_udp_action(MessageID.OFFLINE, None, None, "255.255.255.255")
