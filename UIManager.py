@@ -1,6 +1,6 @@
 import threading
 import tkinter
-from Message import *
+from message import *
 
 WIDTH = 1200
 HEIGHT = 750
@@ -220,5 +220,6 @@ class UIManager(threading.Thread):
         if len(username) > 0:
             self.username_popup.destroy()
             self.mediator.update_username(username)
+            self.mediator.put_udp_action(MessageID.ONLINE, None, None, "255.255.255.255")
 
 

@@ -1,4 +1,4 @@
-from Message import *
+from message import *
 from DBManager import DBManager
 from UIManager import UIManager
 from SocketManager import SocketManager

@@ -1,4 +1,4 @@
-from Message import *
+from message import *
 import socket
 import select
 import json
@@ -24,7 +24,8 @@ class SocketManager:
         udplistener_thread = threading.Thread(target=self.recv_udp, args=(udp_socket, ))
         udplistener_thread.start()
 
-        self.mediator.put_udp_action(MessageID.ONLINE, None, None, BROADCAST_IP)
+        if self.mediator.get_my_username() is not None:
+            self.mediator.put_udp_action(MessageID.ONLINE, None, None, BROADCAST_IP)
 
         udpsender_thread = threading.Thread(target=self.send_udp, args=(udp_socket, ))
         udpsender_thread.start()
