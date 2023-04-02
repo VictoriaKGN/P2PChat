@@ -106,7 +106,7 @@ class Peer:
         return guid in self.connected_peers
     
     def generate_keys(self, guid):
-        public_key, private_key = rsa.newkeys(1024)
+        public_key, private_key = rsa.newkeys(1536)
         self.keys[guid] = (private_key, None)
         return public_key
     
@@ -117,9 +117,8 @@ class Peer:
         return self.keys[guid][1]
     
     def get_my_private_key(self, addr):
-        guid = self.db_manager.get_guid_from_addr(f"{addr[0]}:{addr[1]}")
-        if guid is not None and guid is not False:
-            return self.keys[guid][0]
+        guid = [key for key, value in self.online_peers.items() if value[0] == addr]
+        return self.keys[guid[0]][0]
 
     ########################### Shared Queues Functions ###########################
         

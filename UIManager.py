@@ -52,6 +52,8 @@ class UIManager(threading.Thread):
         self.chathistory_text.pack(side="top", padx=10, pady=5)
         self.chathistory_text.tag_configure("right", justify="right")
         self.chathistory_text.tag_configure("left", justify="left")
+        self.chathistory_text.tag_configure("center", justify="center")
+
 
         input_frame = tkinter.Frame(self.placeholder_frame, bg="#323338", width=540, height=50)
         input_frame.pack(side="bottom", padx=10, pady=6)
@@ -129,7 +131,7 @@ class UIManager(threading.Thread):
                         self.mediator.put_udp_action(MessageID.START, peer_guid, message)
                 else: # if offline
                     self.chathistory_text.config(state="normal")
-                    self.chathistory_text.insert(tkinter.END, "\n**** MESSAGE NOT SENT: PEER NOT ONLINE ****", "right") 
+                    self.chathistory_text.insert(tkinter.END, "\n**** MESSAGE NOT SENT: PEER IS NOT ONLINE ****", "center") 
                     self.chathistory_text.config(state="disabled")
             else: # no selection
                 peer_guid = self.mediator.get_draft_guid()

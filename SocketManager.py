@@ -45,6 +45,7 @@ class SocketManager:
     def open_tcp(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
         sock.setblocking(False)
         sock.bind(("", TCP_PORT))
         sock.listen()
@@ -68,15 +69,16 @@ class SocketManager:
                         print(f"Someone new connected from: {addr}")
                         # TODO update peers info - address and username if needed, only if already present in db
                     elif sock in self.peer_sockets:
-                        data = sock.recv(2048)
+                        data = sock.recv(4096)
                         if data:
-                            decrypted_data = rsa.decrypt(data, self.mediator.get_my_private_key(sock.getsockname())).decode()
-                            message_dict = json.loads(decrypted_data.decode())
+                            private_key = self.mediator.get_my_private_key(sock.getpeername())
+                            decrypted_data = rsa.decrypt(data, private_key).decode()
+                            message_dict = json.loads(decrypted_data)
                             message = Message(**message_dict)
                             print("Got message in peer sockets")
                             if message.messageID == MessageID.PERSONAL:
                                 print(f"Received a personal message: {message_dict}")
-                                self.mediator.put_ui_action(Actions.PEER_MESSAGE, message.senderGUID, message.senderUsername, sock.getsockname(), message.message)
+                                self.mediator.put_ui_action(Actions.PEER_MESSAGE, message.senderGUID, message.senderUsername, sock.getpeername(), message.message)
                         else:
                             print("Someone is disconnecting")
                             self.mediator.remove_online_peer(self.peer_sockets[sock])
@@ -84,14 +86,14 @@ class SocketManager:
                             del self.peer_sockets[sock]
                             sock.close()
                     elif sock in waiting:
-                        data = sock.recv(2048)
+                        data = sock.recv(4096)
                         if data:
                             print("Received init message")
-                            decrypted_data = rsa.decrypt(data, self.mediator.get_my_private_key(sock.getsockname())).decode()
-                            message_dict = json.loads(decrypted_data.decode())
+                            message_dict = json.loads(data.decode())
                             message = Message(**message_dict)
                             if message.messageID == MessageID.INIT:
                                 print("Im in init")
+                                sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
                                 self.peer_sockets[sock] = message.senderGUID
                                 self.mediator.add_connected_peer(message.senderGUID)
                                 self.mediator.update_peer_public(message.senderGUID, self.string_to_public_rsa(message.message))
@@ -127,7 +129,7 @@ class SocketManager:
                         sock.sendall(message_json.encode())
                     else:
                         sock.sendall(rsa.encrypt(message_json.encode(), self.mediator.get_peer_public_key(peer_guid)))
-                        self.mediator.put_ui_action(Actions.MY_MESSAGE, peer_guid, peer_username, sock.getsockname(), message_content)
+                        self.mediator.put_ui_action(Actions.MY_MESSAGE, peer_guid, peer_username, sock.getpeername(), message_content)
                 except Exception as e:
                     print(f"Exception when sending TCP: {e}")
             time.sleep(0.1)
@@ -135,7 +137,7 @@ class SocketManager:
     def recv_udp(self, udp_socket):
         while True:
             try:
-                data, addr = udp_socket.recvfrom(2048)
+                data, addr = udp_socket.recvfrom(3072)
                 print(f"Received broadcast from {addr}: {data.decode()}")
 
                 if addr[0] != socket.gethostbyname(socket.gethostname()):
@@ -152,11 +154,12 @@ class SocketManager:
                     elif message.messageID == MessageID.START: # someone wants to start TCP, connect to them using TCP socket
                         print("Received START message")
                         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
                         try:
                             sock.connect((addr[0], TCP_PORT))
                             self.peer_sockets[sock] = message.senderGUID
                             self.mediator.add_connected_peer(message.senderGUID)
-                            self.mediator.add_online_peer(message.senderGUID, message.senderUsername, sock.getsockname())
+                            self.mediator.add_online_peer(message.senderGUID, message.senderUsername, sock.getpeername())
                             public_key = self.mediator.generate_keys(message.senderGUID)
                             self.mediator.update_peer_public(message.senderGUID, self.string_to_public_rsa(message.message))
                             self.mediator.put_tcp_action(Actions.INIT, message.senderGUID, message.senderUsername, MessageID.INIT, self.public_rsa_to_string(public_key))
@@ -173,6 +176,7 @@ class SocketManager:
                 message_id, to_send_guid, message, ip_addr = result
                 if message_id == MessageID.OFFLINE:
                     self.disconnect_tcp_sockets()
+                    message_content = message
                 elif message_id == MessageID.START:
                     public_key = self.mediator.generate_keys(to_send_guid)
                     message_content = self.public_rsa_to_string(public_key)
@@ -194,4 +198,4 @@ class SocketManager:
         return rsa.PublicKey.load_pkcs1(b64decode(key_str.encode()))
     
     def public_rsa_to_string(self, key):
-        return b64encode(key.save_pkcs1()).decode()
+        return b64encode(key.save_pkcs1("PEM")).decode()
