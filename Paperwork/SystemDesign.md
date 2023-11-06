@@ -27,8 +27,8 @@ As UDP packets can get lost, flooding will be introduced to eliminate that.
 As flooding can result in low network traffic and potentially cause congestion in larger networks, time to live (TTL) will be added to each packet. 
 The type of TTL is not yet decided (time or number of hops).
 
-![Alt text](images/OnlineOffline.png)
-![Alt text](images/FloodGossip.png)
+![Alt text](Images/OnlineOffline.png)
+![Alt text](Images/FloodGossip.png)
 
 
 ### Direct Communication
@@ -40,7 +40,7 @@ This eliminates third-party attacks as even if the attacker manages to obtain th
 If time permits, messages that have not been acknowledged may be stored in a queue, and once the user is back online or the connection is back, the queue will then be sent to the recipient. 
 This will require more authentication.
 
-![Alt text](images/DirectMessage.png)
+![Alt text](Images/DirectMessage.png)
 
 
 ## Resources
