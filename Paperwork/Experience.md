@@ -25,11 +25,11 @@ Although not having a server to handle communications makes it difficult, this s
 
 ## Architecture
 
-![Alt text](Images/OnlineAck.png)
+![Alt text](/Paperwork/Images/OnlineAck.png)
 
-![Alt text](Images/TCPEncryptedMsg.png)
+![Alt text](/Paperwork/Images/TCPEncryptedMsg.png)
 
-![Alt text](Images/Offline.png)
+![Alt text](/Paperwork/Images/Offline.png)
 
 
 ## Possible Features
